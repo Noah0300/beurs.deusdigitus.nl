@@ -54,6 +54,18 @@ function get_db(): PDO {
             updated_at TEXT
         )'
     );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS fairs (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            city TEXT NOT NULL,
+            date TEXT NOT NULL,
+            start_time TEXT,
+            end_time TEXT,
+            notes TEXT,
+            created_at TEXT
+        )'
+    );
 
     seed_defaults($pdo);
     return $pdo;
@@ -259,6 +271,85 @@ try {
                     ':stock' => $product['stock'],
                     ':created_at' => $product['createdAt'],
                     ':updated_at' => $product['updatedAt']
+                ]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        json_response(200, ['success' => true, 'count' => count($normalized)]);
+    }
+
+    if ($method === 'GET' && $segments === ['fairs']) {
+        require_user();
+        $stmt = $pdo->query(
+            'SELECT id, name, city, date, start_time, end_time, notes, created_at
+             FROM fairs ORDER BY date ASC, start_time ASC'
+        );
+        $fairs = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $fairs[] = [
+                'id' => (string)$row['id'],
+                'name' => (string)$row['name'],
+                'city' => (string)$row['city'],
+                'date' => (string)$row['date'],
+                'startTime' => $row['start_time'] !== null ? (string)$row['start_time'] : '',
+                'endTime' => $row['end_time'] !== null ? (string)$row['end_time'] : '',
+                'notes' => $row['notes'] !== null ? (string)$row['notes'] : '',
+                'createdAt' => $row['created_at'] !== null ? (string)$row['created_at'] : null
+            ];
+        }
+        json_response(200, ['fairs' => $fairs]);
+    }
+
+    if ($method === 'PUT' && $segments === ['fairs']) {
+        require_user();
+        $body = get_json_body();
+        $incoming = $body['fairs'] ?? null;
+        if (!is_array($incoming)) {
+            json_response(422, ['message' => 'Ongeldige beurspayload.']);
+        }
+
+        $normalized = [];
+        foreach ($incoming as $item) {
+            if (!is_array($item)) continue;
+            $id = trim((string)($item['id'] ?? ''));
+            $name = trim((string)($item['name'] ?? ''));
+            $city = trim((string)($item['city'] ?? ''));
+            $date = trim((string)($item['date'] ?? ''));
+            if ($id === '' || $name === '' || $city === '' || $date === '') continue;
+
+            $normalized[] = [
+                'id' => $id,
+                'name' => $name,
+                'city' => $city,
+                'date' => $date,
+                'startTime' => trim((string)($item['startTime'] ?? '')),
+                'endTime' => trim((string)($item['endTime'] ?? '')),
+                'notes' => trim((string)($item['notes'] ?? '')),
+                'createdAt' => isset($item['createdAt']) ? (string)$item['createdAt'] : null
+            ];
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->exec('DELETE FROM fairs');
+            $insert = $pdo->prepare(
+                'INSERT INTO fairs (id, name, city, date, start_time, end_time, notes, created_at)
+                 VALUES (:id, :name, :city, :date, :start_time, :end_time, :notes, :created_at)'
+            );
+            foreach ($normalized as $fair) {
+                $insert->execute([
+                    ':id' => $fair['id'],
+                    ':name' => $fair['name'],
+                    ':city' => $fair['city'],
+                    ':date' => $fair['date'],
+                    ':start_time' => $fair['startTime'],
+                    ':end_time' => $fair['endTime'],
+                    ':notes' => $fair['notes'],
+                    ':created_at' => $fair['createdAt']
                 ]);
             }
             $pdo->commit();

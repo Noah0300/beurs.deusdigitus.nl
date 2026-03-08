@@ -87,6 +87,26 @@ async function syncProductsFromServer() {
     return true;
 }
 
+function setStoredFairsLocal(fairs) {
+    localStorage.setItem(FAIRS_STORAGE_KEY, JSON.stringify(fairs));
+}
+
+async function syncFairsFromServer() {
+    const { response, data } = await apiRequest('./api/fairs', { method: 'GET', cache: 'no-store' });
+    if (!response.ok || !data || !Array.isArray(data.fairs)) return false;
+    setStoredFairsLocal(data.fairs);
+    return true;
+}
+
+async function persistFairs(fairs) {
+    setStoredFairsLocal(fairs);
+    const { response } = await apiRequest('./api/fairs', {
+        method: 'PUT',
+        body: JSON.stringify({ fairs })
+    });
+    return response.ok;
+}
+
 async function persistProducts(products, showSyncError = false) {
     localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
     const { response, data } = await apiRequest('./api/products', {
@@ -209,6 +229,7 @@ async function initializeAppForRole(requiredRole) {
     const session = await checkAuthentication(requiredRole);
     if (!session) return;
     await syncProductsFromServer();
+    await syncFairsFromServer();
 
     if (requiredRole === 'admin') {
         initializeTopNavigation();
@@ -1980,7 +2001,8 @@ function buildTopRecordsForTransactions(transactions) {
 }
 
 function saveStoredFairs(fairs) {
-    localStorage.setItem(FAIRS_STORAGE_KEY, JSON.stringify(fairs));
+    setStoredFairsLocal(fairs);
+    void persistFairs(fairs);
 }
 
 function unlinkFairFromTransactions(fairId) {
