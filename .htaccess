@@ -5,7 +5,8 @@ RewriteBase /
 # 1) Laat API-routes met rust (api/.htaccess handelt dit af)
 RewriteRule ^api/ - [L]
 
-# 2) Canonical zonder .html
+# 2) Canonical zonder .html (alleen op directe browser request)
+RewriteCond %{THE_REQUEST} \s/+((index|dashboard|cashier)\.html)([\s?]|$) [NC]
 RewriteRule ^(index|dashboard|cashier)\.html$ /$1 [R=301,L,NC]
 
 # 3) Mooie routes -> bestaande HTML bestanden
