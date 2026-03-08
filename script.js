@@ -15,6 +15,8 @@ let importPreviewRows = [];
 let cashierCart = [];
 let cashierVideoStream = null;
 let cashierScannerActive = false;
+let cashierScannerMode = '';
+let cashierHtml5Qr = null;
 
 const SEARCH_SORT_STATE = {
     key: 'artist',
@@ -411,23 +413,40 @@ function processCheckout() {
 }
 
 async function startCameraBarcodeScan() {
+    if (cashierScannerActive) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         showCashierMessage('Camera wordt niet ondersteund op dit apparaat.', 'error');
-        return;
-    }
-    if (typeof window.BarcodeDetector === 'undefined') {
-        showCashierMessage('Barcode-scanner niet ondersteund in deze browser. Gebruik handmatige scan.', 'error');
         return;
     }
 
     const scannerWrap = document.getElementById('cashierScannerWrap');
     const video = document.getElementById('cashierVideo');
-    if (!(scannerWrap instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) return;
+    const qrReader = document.getElementById('cashierQrReader');
+    if (!(scannerWrap instanceof HTMLElement) || !(video instanceof HTMLVideoElement) || !(qrReader instanceof HTMLElement)) return;
 
+    scannerWrap.classList.remove('hidden');
+
+    if (typeof window.BarcodeDetector !== 'undefined') {
+        await startBarcodeDetectorScan(video, qrReader);
+        return;
+    }
+
+    if (typeof window.Html5Qrcode !== 'undefined') {
+        await startHtml5QrScan(video, qrReader);
+        return;
+    }
+
+    showCashierMessage('Barcode-scanner niet ondersteund in deze browser. Gebruik handmatige scan.', 'error');
+}
+
+async function startBarcodeDetectorScan(video, qrReader) {
     try {
         const detector = new window.BarcodeDetector({
             formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39']
         });
+
+        video.classList.remove('hidden');
+        qrReader.classList.add('hidden');
 
         cashierVideoStream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: 'environment' } },
@@ -435,11 +454,11 @@ async function startCameraBarcodeScan() {
         });
 
         video.srcObject = cashierVideoStream;
-        scannerWrap.classList.remove('hidden');
         cashierScannerActive = true;
+        cashierScannerMode = 'barcode-detector';
 
         const scanLoop = async () => {
-            if (!cashierScannerActive) return;
+            if (!cashierScannerActive || cashierScannerMode !== 'barcode-detector') return;
             try {
                 const barcodes = await detector.detect(video);
                 if (Array.isArray(barcodes) && barcodes.length > 0) {
@@ -459,7 +478,56 @@ async function startCameraBarcodeScan() {
         requestAnimationFrame(scanLoop);
         showCashierMessage('Camera scanner gestart. Richt op barcode.', 'info');
     } catch (error) {
-        console.error('Camera scan error:', error);
+        console.error('BarcodeDetector scan error:', error);
+        showCashierMessage('Camera kon niet gestart worden.', 'error');
+        stopCameraBarcodeScan();
+    }
+}
+
+async function startHtml5QrScan(video, qrReader) {
+    try {
+        video.classList.add('hidden');
+        qrReader.classList.remove('hidden');
+        qrReader.innerHTML = '';
+        cashierHtml5Qr = new window.Html5Qrcode('cashierQrReader');
+
+        const config = {
+            fps: 10,
+            qrbox: { width: 280, height: 120 },
+            formatsToSupport: [
+                window.Html5QrcodeSupportedFormats.EAN_13,
+                window.Html5QrcodeSupportedFormats.EAN_8,
+                window.Html5QrcodeSupportedFormats.UPC_A,
+                window.Html5QrcodeSupportedFormats.UPC_E,
+                window.Html5QrcodeSupportedFormats.CODE_128,
+                window.Html5QrcodeSupportedFormats.CODE_39
+            ]
+        };
+
+        cashierScannerActive = true;
+        cashierScannerMode = 'html5-qrcode';
+
+        const onSuccess = (decodedText) => {
+            if (!cashierScannerActive) return;
+            if (decodedText) {
+                addBarcodeToCart(decodedText);
+                stopCameraBarcodeScan();
+            }
+        };
+
+        const onError = () => {
+            // Ignore frame decode misses.
+        };
+
+        try {
+            await cashierHtml5Qr.start({ facingMode: { exact: 'environment' } }, config, onSuccess, onError);
+        } catch {
+            await cashierHtml5Qr.start({ facingMode: 'environment' }, config, onSuccess, onError);
+        }
+
+        showCashierMessage('Camera scanner gestart. Richt op barcode.', 'info');
+    } catch (error) {
+        console.error('html5-qrcode scan error:', error);
         showCashierMessage('Camera kon niet gestart worden.', 'error');
         stopCameraBarcodeScan();
     }
@@ -468,7 +536,9 @@ async function startCameraBarcodeScan() {
 function stopCameraBarcodeScan() {
     const scannerWrap = document.getElementById('cashierScannerWrap');
     const video = document.getElementById('cashierVideo');
+    const qrReader = document.getElementById('cashierQrReader');
     cashierScannerActive = false;
+    cashierScannerMode = '';
 
     if (cashierVideoStream) {
         cashierVideoStream.getTracks().forEach((track) => track.stop());
@@ -476,6 +546,25 @@ function stopCameraBarcodeScan() {
     }
     if (video && video.srcObject) {
         video.srcObject = null;
+    }
+    if (video) {
+        video.classList.remove('hidden');
+    }
+
+    if (cashierHtml5Qr) {
+        try {
+            if (cashierHtml5Qr.isScanning) {
+                cashierHtml5Qr.stop();
+            }
+            cashierHtml5Qr.clear();
+        } catch {
+            // Ignore scanner cleanup errors.
+        }
+        cashierHtml5Qr = null;
+    }
+    if (qrReader) {
+        qrReader.innerHTML = '';
+        qrReader.classList.add('hidden');
     }
     if (scannerWrap) {
         scannerWrap.classList.add('hidden');
