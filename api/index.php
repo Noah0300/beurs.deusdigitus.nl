@@ -13,6 +13,11 @@ session_start();
 
 header('Content-Type: application/json; charset=utf-8');
 
+$secretsPath = __DIR__ . DIRECTORY_SEPARATOR . 'secrets.php';
+if (is_file($secretsPath)) {
+    require_once $secretsPath;
+}
+
 const MAIN_ADMIN_USERNAME = 'admin';
 const MAIN_ADMIN_PASSWORD = 'James123';
 const DEFAULT_CASHIER_USERNAME = 'cashier';
@@ -159,6 +164,92 @@ function parse_path(): array {
     return $segments;
 }
 
+function get_discogs_token(): string {
+    if (defined('DISCOGS_PERSONAL_TOKEN')) {
+        return trim((string)DISCOGS_PERSONAL_TOKEN);
+    }
+    $fromEnv = getenv('DISCOGS_PERSONAL_TOKEN');
+    return $fromEnv !== false ? trim((string)$fromEnv) : '';
+}
+
+function http_get_json(string $url, array $headers): ?array {
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 12,
+            CURLOPT_HTTPHEADER => $headers
+        ]);
+        $body = curl_exec($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($body === false || $status < 200 || $status >= 300) return null;
+        $decoded = json_decode($body, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => 12,
+            'header' => implode("\r\n", $headers) . "\r\n"
+        ]
+    ]);
+    $body = @file_get_contents($url, false, $context);
+    if ($body === false) return null;
+    $decoded = json_decode($body, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+function parse_discogs_title(string $title): array {
+    $parts = preg_split('/\s+-\s+/', $title, 2);
+    if (is_array($parts) && count($parts) === 2) {
+        return ['artist' => trim((string)$parts[0]), 'album' => trim((string)$parts[1])];
+    }
+    return ['artist' => '', 'album' => trim($title)];
+}
+
+function fetch_discogs_metadata(string $barcode): ?array {
+    $token = get_discogs_token();
+    if ($token === '') return null;
+
+    $url = 'https://api.discogs.com/database/search'
+        . '?barcode=' . rawurlencode($barcode)
+        . '&type=release'
+        . '&per_page=10';
+
+    $payload = http_get_json($url, [
+        'User-Agent: DeusDigitusBeurs/1.0 +https://beurs.deusdigitus.nl',
+        'Authorization: Discogs token=' . $token,
+        'Accept: application/json'
+    ]);
+    if (!$payload || !isset($payload['results']) || !is_array($payload['results'])) return null;
+
+    foreach ($payload['results'] as $item) {
+        if (!is_array($item)) continue;
+        $title = isset($item['title']) ? trim((string)$item['title']) : '';
+        if ($title === '') continue;
+
+        $formats = isset($item['format']) && is_array($item['format']) ? $item['format'] : [];
+        if (!empty($formats)) {
+            $isVinyl = false;
+            foreach ($formats as $format) {
+                if (stripos((string)$format, 'vinyl') !== false || stripos((string)$format, 'lp') !== false) {
+                    $isVinyl = true;
+                    break;
+                }
+            }
+            if (!$isVinyl) continue;
+        }
+
+        $parsed = parse_discogs_title($title);
+        if ($parsed['album'] === '') continue;
+        return $parsed;
+    }
+
+    return null;
+}
+
 try {
     $pdo = get_db();
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -204,6 +295,19 @@ try {
         $user = current_user();
         if (!$user) json_response(401, ['message' => 'Niet ingelogd.']);
         json_response(200, ['user' => $user]);
+    }
+
+    if ($method === 'GET' && count($segments) === 2 && $segments[0] === 'lookup' && $segments[1] === 'barcode') {
+        require_user();
+        $barcode = trim((string)($_GET['code'] ?? ''));
+        if ($barcode === '') {
+            json_response(422, ['message' => 'Barcode ontbreekt.']);
+        }
+        $metadata = fetch_discogs_metadata($barcode);
+        if (!$metadata) {
+            json_response(404, ['message' => 'Geen Discogs-match.']);
+        }
+        json_response(200, ['source' => 'discogs', 'artist' => $metadata['artist'], 'album' => $metadata['album']]);
     }
 
     if ($method === 'GET' && $segments === ['users']) {

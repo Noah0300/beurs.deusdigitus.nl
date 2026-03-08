@@ -2418,6 +2418,18 @@ async function fetchReleaseByBarcode(barcode) {
     }
 
     for (const candidate of candidates) {
+        const discogsMetadata = await fetchDiscogsServerMetadata(candidate);
+        if (discogsMetadata) {
+            setCachedMetadata(candidate, { artist: discogsMetadata.artist, album: discogsMetadata.album });
+            return {
+                artist: discogsMetadata.artist,
+                album: discogsMetadata.album,
+                source: 'discogs'
+            };
+        }
+    }
+
+    for (const candidate of candidates) {
         const url = `https://musicbrainz.org/ws/2/release/?query=barcode:${encodeURIComponent(candidate)}&fmt=json&limit=25`;
         const response = await fetch(url, {
             headers: {
@@ -2457,6 +2469,22 @@ async function fetchReleaseByBarcode(barcode) {
     }
 
     return null;
+}
+
+async function fetchDiscogsServerMetadata(barcode) {
+    try {
+        const { response, data } = await apiRequest(`./api/lookup/barcode?code=${encodeURIComponent(barcode)}`, {
+            method: 'GET',
+            cache: 'no-store'
+        });
+        if (!response.ok || !data) return null;
+        const artist = String(data.artist || '').trim();
+        const album = String(data.album || '').trim();
+        if (!artist && !album) return null;
+        return { artist, album };
+    } catch {
+        return null;
+    }
 }
 
 async function fetchBertusMetadata(barcode) {
