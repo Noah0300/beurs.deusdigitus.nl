@@ -1,12 +1,4 @@
-﻿// Standaard gebruikers
-const MAIN_ADMIN_USERNAME = 'admin';
-const MAIN_ADMIN_PASSWORD = 'James123';
-const DEFAULT_USERS = [
-    { username: MAIN_ADMIN_USERNAME, password: MAIN_ADMIN_PASSWORD, role: 'admin', isMainAdmin: true },
-    { username: 'cashier', password: 'cashier123', role: 'cashier', isMainAdmin: false }
-];
-
-const SESSION_STORAGE_KEY = 'userSession';
+﻿const SESSION_STORAGE_KEY = 'userSession';
 const USERS_STORAGE_KEY = 'appUsers';
 const PRODUCTS_STORAGE_KEY = 'vinylProducts';
 const BARCODE_METADATA_CACHE_KEY = 'barcodeMetadataCache';
@@ -15,6 +7,7 @@ const TRANSACTIONS_STORAGE_KEY = 'salesTransactions';
 const BERTUS_API_KEY_STORAGE = 'bertusApiKey';
 const BERTUS_ACCOUNT_ID_STORAGE = 'bertusAccountId';
 const LIVE_DATA_CLEANUP_KEY = 'liveDataCleanupV1';
+let currentServerSession = null;
 let sessionAddedProducts = [];
 let importPreviewRows = [];
 let cashierCart = [];
@@ -68,6 +61,25 @@ function goToRoute(name) {
     window.location.href = routePath(name);
 }
 
+async function apiRequest(path, options = {}) {
+    const response = await fetch(path, {
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+        },
+        ...options
+    });
+
+    let data = null;
+    try {
+        data = await response.json();
+    } catch {
+        data = null;
+    }
+    return { response, data };
+}
+
 function cleanupLiveDataOnce() {
     try {
         if (localStorage.getItem(LIVE_DATA_CLEANUP_KEY) === 'done') return;
@@ -96,32 +108,28 @@ if (document.getElementById('loginForm')) {
     const loginForm = document.getElementById('loginForm');
     const errorMessage = document.getElementById('errorMessage');
 
-    loginForm.addEventListener('submit', function (e) {
+    loginForm.addEventListener('submit', async function (e) {
         e.preventDefault();
 
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
+        const { response, data } = await apiRequest('./api/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
 
-        const users = getStoredUsers();
-        const matchedUser = users.find((user) => user.username === username && user.password === password);
-        if (matchedUser) {
-            const sessionData = {
-                username: username,
-                role: matchedUser.role,
-                loginTime: new Date().toISOString(),
-                isAuthenticated: true
-            };
-            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
-            goToRoute(matchedUser.role === 'admin' ? 'dashboard' : 'cashier');
-        } else {
-            errorMessage.textContent = 'Gebruikersnaam of wachtwoord is onjuist.';
+        if (!response.ok || !data || !data.user) {
+            errorMessage.textContent = data && data.message ? data.message : 'Gebruikersnaam of wachtwoord is onjuist.';
             errorMessage.classList.add('show');
             document.getElementById('password').value = '';
-
             setTimeout(() => {
                 errorMessage.classList.remove('show');
             }, 5000);
+            return;
         }
+
+        currentServerSession = data.user;
+        goToRoute(data.user.role === 'admin' ? 'dashboard' : 'cashier');
     });
 }
 
@@ -133,27 +141,11 @@ const isCashierPage = !!document.getElementById('cashierApp');
 registerOfflineSupport();
 
 if (isDashboardPage) {
-    checkAuthentication('admin');
-    initializeTopNavigation();
-    initializeDashboard();
-    initializeTransactionsPage();
-    initializeAssignTransactionsPage();
-    initializePastFairsPage();
-    initializeUserManagement();
-    initializeProductForm();
-    initializeFairPlanner();
-    initializeProductSearch();
-    initializeImportTab();
-    renderDashboardAgenda();
-
-    document.getElementById('logoutBtn').addEventListener('click', logout);
+    initializeAppForRole('admin');
 }
 
 if (isCashierPage) {
-    checkAuthentication('cashier');
-    initializeCashierPage();
-    initializeCashierConnectivity();
-    document.getElementById('logoutBtn').addEventListener('click', logout);
+    initializeAppForRole('cashier');
 }
 
 function registerOfflineSupport() {
@@ -165,37 +157,18 @@ function registerOfflineSupport() {
     });
 }
 
-function checkAuthentication(requiredRole = null) {
-    const sessionData = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!sessionData) {
+async function checkAuthentication(requiredRole = null) {
+    const { response, data } = await apiRequest('./api/me', { method: 'GET', cache: 'no-store' });
+    if (!response.ok || !data || !data.user) {
         goToRoute('login');
-        return;
+        return null;
     }
 
-    const session = JSON.parse(sessionData);
-    const users = getStoredUsers();
-    const user = users.find((item) => item.username === session.username);
-    if (!user) {
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-        goToRoute('login');
-        return;
-    }
-    if (session.role !== user.role) {
-        session.role = user.role;
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    }
+    const session = data.user;
+    currentServerSession = session;
     if (requiredRole && session.role !== requiredRole) {
         goToRoute(session.role === 'admin' ? 'dashboard' : 'cashier');
-        return;
-    }
-    const loginTime = new Date(session.loginTime);
-    const now = new Date();
-    const hoursDiff = (now - loginTime) / (1000 * 60 * 60);
-
-    if (hoursDiff > 24) {
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-        goToRoute('login');
-        return;
+        return null;
     }
 
     const displayName = session.username.charAt(0).toUpperCase() + session.username.slice(1);
@@ -206,8 +179,37 @@ function checkAuthentication(requiredRole = null) {
     const sessionUserElement = document.getElementById('sessionUser');
     if (sessionUserElement) sessionUserElement.textContent = displayName;
 
+    const loginTime = session.loginTime ? new Date(session.loginTime) : new Date();
     const sessionTimeElement = document.getElementById('sessionTime');
     if (sessionTimeElement) updateSessionTime(loginTime);
+    return session;
+}
+
+async function initializeAppForRole(requiredRole) {
+    const session = await checkAuthentication(requiredRole);
+    if (!session) return;
+
+    if (requiredRole === 'admin') {
+        initializeTopNavigation();
+        initializeDashboard();
+        initializeTransactionsPage();
+        initializeAssignTransactionsPage();
+        initializePastFairsPage();
+        initializeUserManagement();
+        initializeProductForm();
+        initializeFairPlanner();
+        initializeProductSearch();
+        initializeImportTab();
+        renderDashboardAgenda();
+    }
+
+    if (requiredRole === 'cashier') {
+        initializeCashierPage();
+        initializeCashierConnectivity();
+    }
+
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) logoutBtn.addEventListener('click', logout);
 }
 
 function updateSessionTime(loginTime) {
@@ -302,8 +304,7 @@ function initializeUserManagement() {
     const createUserBtn = document.getElementById('createUserBtn');
     if (!section || !form || !usersTableBody || !createUserBtn) return;
 
-    const session = getCurrentSession();
-    const isMainAdmin = isCurrentMainAdmin(session);
+    const isMainAdmin = Boolean(currentServerSession && currentServerSession.isMainAdmin);
     if (!isMainAdmin) {
         section.classList.add('hidden');
         return;
@@ -312,7 +313,7 @@ function initializeUserManagement() {
     section.classList.remove('hidden');
     renderUsersTable();
 
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const usernameInput = document.getElementById('newUserNameInput');
@@ -339,19 +340,15 @@ function initializeUserManagement() {
             return;
         }
 
-        const users = getStoredUsers();
-        if (users.some((user) => user.username === username)) {
-            showUserManagementMessage('Deze gebruikersnaam bestaat al.', 'error');
+        const { response, data } = await apiRequest('./api/users', {
+            method: 'POST',
+            body: JSON.stringify({ username, password, role })
+        });
+        if (!response.ok) {
+            showUserManagementMessage(data && data.message ? data.message : 'Gebruiker aanmaken mislukt.', 'error');
             return;
         }
 
-        users.push({
-            username,
-            password,
-            role,
-            isMainAdmin: false
-        });
-        saveStoredUsers(users);
         renderUsersTable();
         showUserManagementMessage('Gebruiker aangemaakt.', 'success');
 
@@ -360,7 +357,7 @@ function initializeUserManagement() {
         roleInput.value = 'cashier';
     });
 
-    usersTableBody.addEventListener('click', (event) => {
+    usersTableBody.addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
         if (!target.classList.contains('delete-user-btn')) return;
@@ -368,29 +365,33 @@ function initializeUserManagement() {
         const username = target.getAttribute('data-username') || '';
         if (!username) return;
 
-        const users = getStoredUsers();
-        const user = users.find((item) => item.username === username);
-        if (!user) return;
-        if (user.isMainAdmin) {
-            showUserManagementMessage('Hoofd-admin kan niet verwijderd worden.', 'error');
-            return;
-        }
-
         const confirmed = window.confirm(`Gebruiker "${username}" verwijderen?`);
         if (!confirmed) return;
 
-        const updatedUsers = users.filter((item) => item.username !== username);
-        saveStoredUsers(updatedUsers);
+        const { response, data } = await apiRequest(`./api/users/${encodeURIComponent(username)}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            showUserManagementMessage(data && data.message ? data.message : 'Gebruiker verwijderen mislukt.', 'error');
+            return;
+        }
+
         renderUsersTable();
         showUserManagementMessage('Gebruiker verwijderd.', 'success');
     });
 }
 
-function renderUsersTable() {
+async function renderUsersTable() {
     const usersTableBody = document.getElementById('usersTableBody');
     if (!usersTableBody) return;
 
-    const users = getStoredUsers().slice().sort((a, b) => a.username.localeCompare(b.username, 'nl'));
+    const { response, data } = await apiRequest('./api/users', { method: 'GET', cache: 'no-store' });
+    if (!response.ok || !data || !Array.isArray(data.users)) {
+        usersTableBody.innerHTML = '<tr><td colspan="4" class="empty-row">Accounts konden niet worden geladen.</td></tr>';
+        return;
+    }
+
+    const users = data.users.slice().sort((a, b) => a.username.localeCompare(b.username, 'nl'));
     if (users.length === 0) {
         usersTableBody.innerHTML = '<tr><td colspan="4" class="empty-row">Nog geen accounts gevonden.</td></tr>';
         return;
@@ -2507,71 +2508,11 @@ function getStoredProducts() {
     }
 }
 
-function getStoredUsers() {
-    const raw = localStorage.getItem(USERS_STORAGE_KEY);
-    if (!raw) {
-        saveStoredUsers(DEFAULT_USERS);
-        return DEFAULT_USERS.map((user) => ({ ...user }));
-    }
-
-    try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-            saveStoredUsers(DEFAULT_USERS);
-            return DEFAULT_USERS.map((user) => ({ ...user }));
-        }
-
-        const normalized = parsed
-            .filter((item) => item && typeof item === 'object')
-            .map((item) => ({
-                username: String(item.username || '').trim().toLowerCase(),
-                password: String(item.password || ''),
-                role: item.role === 'admin' ? 'admin' : 'cashier',
-                isMainAdmin: Boolean(item.isMainAdmin)
-            }))
-            .filter((item) => item.username && item.password);
-
-        const adminIndex = normalized.findIndex((item) => item.username === MAIN_ADMIN_USERNAME);
-        if (adminIndex >= 0) {
-            normalized[adminIndex].role = 'admin';
-            normalized[adminIndex].isMainAdmin = true;
-            normalized[adminIndex].password = MAIN_ADMIN_PASSWORD;
-        } else {
-            normalized.push({ username: MAIN_ADMIN_USERNAME, password: MAIN_ADMIN_PASSWORD, role: 'admin', isMainAdmin: true });
-        }
-
-        saveStoredUsers(normalized);
-        return normalized;
-    } catch {
-        saveStoredUsers(DEFAULT_USERS);
-        return DEFAULT_USERS.map((user) => ({ ...user }));
-    }
-}
-
-function saveStoredUsers(users) {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-}
-
-function getCurrentSession() {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return null;
-    }
-}
-
 function getCurrentUserName() {
-    const session = getCurrentSession();
-    return session && session.username ? String(session.username) : '';
-}
-
-function isCurrentMainAdmin(session) {
-    if (!session || !session.username) return false;
-    const users = getStoredUsers();
-    const user = users.find((item) => item.username === String(session.username).toLowerCase());
-    return Boolean(user && user.isMainAdmin);
+    if (currentServerSession && currentServerSession.username) {
+        return String(currentServerSession.username);
+    }
+    return '';
 }
 
 function getStoredProductByBarcode(barcode) {
@@ -2874,8 +2815,11 @@ function logout() {
             clearInterval(cashierConnectivityTimer);
             cashierConnectivityTimer = null;
         }
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-        goToRoute('login');
+        apiRequest('./api/logout', { method: 'POST' })
+            .finally(() => {
+                currentServerSession = null;
+                goToRoute('login');
+            });
     }
 }
 
@@ -2885,6 +2829,7 @@ window.addEventListener('pageshow', function (event) {
         if (isCashierPage) checkAuthentication('cashier');
     }
 });
+
 
 
 

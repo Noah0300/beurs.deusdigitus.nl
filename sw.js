@@ -32,6 +32,12 @@ self.addEventListener('fetch', (event) => {
 
     const url = new URL(request.url);
     const isSameOrigin = url.origin === self.location.origin;
+    const isApiRequest = isSameOrigin && url.pathname.startsWith('/api/');
+
+    if (isApiRequest) {
+        event.respondWith(fetch(request));
+        return;
+    }
 
     if (request.mode === 'navigate') {
         event.respondWith(
