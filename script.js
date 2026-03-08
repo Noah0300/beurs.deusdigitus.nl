@@ -17,11 +17,18 @@ let cashierVideoStream = null;
 let cashierScannerActive = false;
 let cashierScannerMode = '';
 let cashierHtml5Qr = null;
-const SMALL_BARCODE_VIDEO_CONSTRAINTS = {
+let cashierPrecisionMode = false;
+
+const CAMERA_CONSTRAINTS_NORMAL = {
+    facingMode: { ideal: 'environment' },
+    width: { ideal: 1280 },
+    height: { ideal: 720 }
+};
+
+const CAMERA_CONSTRAINTS_PRECISION = {
     facingMode: { ideal: 'environment' },
     width: { ideal: 1920 },
-    height: { ideal: 1080 },
-    focusMode: { ideal: 'continuous' }
+    height: { ideal: 1080 }
 };
 
 const SEARCH_SORT_STATE = {
@@ -219,6 +226,7 @@ function initializeCashierPage() {
     const cartTableBody = document.getElementById('cashierCartTableBody');
     const cameraScanBtn = document.getElementById('cameraScanBtn');
     const stopCameraScanBtn = document.getElementById('stopCameraScanBtn');
+    const togglePrecisionModeBtn = document.getElementById('togglePrecisionModeBtn');
     if (!barcodeInput || !addBtn || !checkoutBtn || !cartTableBody) return;
 
     barcodeInput.focus();
@@ -264,6 +272,20 @@ function initializeCashierPage() {
     if (cameraScanBtn) {
         cameraScanBtn.addEventListener('click', async () => {
             await startCameraBarcodeScan();
+        });
+    }
+
+    if (togglePrecisionModeBtn) {
+        togglePrecisionModeBtn.addEventListener('click', () => {
+            cashierPrecisionMode = !cashierPrecisionMode;
+            togglePrecisionModeBtn.textContent = cashierPrecisionMode ? 'Slow precision: AAN' : 'Slow precision: UIT';
+            togglePrecisionModeBtn.classList.toggle('active', cashierPrecisionMode);
+            showCashierMessage(
+                cashierPrecisionMode
+                    ? 'Slow precision staat aan. Beter voor kleine barcodes, iets trager.'
+                    : 'Slow precision staat uit. Sneller voor normale/grote barcodes.',
+                'info'
+            );
         });
     }
 
@@ -454,10 +476,7 @@ async function startBarcodeDetectorScan(video, qrReader) {
         video.classList.remove('hidden');
         qrReader.classList.add('hidden');
 
-        cashierVideoStream = await navigator.mediaDevices.getUserMedia({
-            video: SMALL_BARCODE_VIDEO_CONSTRAINTS,
-            audio: false
-        });
+        cashierVideoStream = await getCameraStreamWithFallback(cashierPrecisionMode);
 
         video.srcObject = cashierVideoStream;
         cashierScannerActive = true;
@@ -467,7 +486,7 @@ async function startBarcodeDetectorScan(video, qrReader) {
             if (!cashierScannerActive || cashierScannerMode !== 'barcode-detector') return;
             try {
                 let barcodes = await detector.detect(video);
-                if ((!barcodes || barcodes.length === 0) && video.videoWidth > 0 && video.videoHeight > 0) {
+                if (cashierPrecisionMode && (!barcodes || barcodes.length === 0) && video.videoWidth > 0 && video.videoHeight > 0) {
                     const upscaledCanvas = getUpscaledScanCanvas(video);
                     if (upscaledCanvas) {
                         barcodes = await detector.detect(upscaledCanvas);
@@ -504,13 +523,13 @@ async function startHtml5QrScan(video, qrReader) {
         cashierHtml5Qr = new window.Html5Qrcode('cashierQrReader');
 
         const config = {
-            fps: 15,
+            fps: cashierPrecisionMode ? 8 : 15,
             disableFlip: true,
             qrbox: (viewfinderWidth, viewfinderHeight) => ({
-                width: Math.max(280, Math.floor(viewfinderWidth * 0.95)),
-                height: Math.max(120, Math.floor(viewfinderHeight * 0.32))
+                width: Math.max(280, Math.floor(viewfinderWidth * (cashierPrecisionMode ? 0.98 : 0.92))),
+                height: Math.max(120, Math.floor(viewfinderHeight * (cashierPrecisionMode ? 0.38 : 0.30)))
             }),
-            videoConstraints: SMALL_BARCODE_VIDEO_CONSTRAINTS,
+            videoConstraints: cashierPrecisionMode ? CAMERA_CONSTRAINTS_PRECISION : CAMERA_CONSTRAINTS_NORMAL,
             formatsToSupport: [
                 window.Html5QrcodeSupportedFormats.EAN_13,
                 window.Html5QrcodeSupportedFormats.EAN_8,
@@ -542,12 +561,37 @@ async function startHtml5QrScan(video, qrReader) {
             await cashierHtml5Qr.start({ facingMode: 'environment' }, config, onSuccess, onError);
         }
 
-        showCashierMessage('Camera scanner gestart. Tip: houd kleine barcodes dichterbij en stabiel in beeld.', 'info');
+        showCashierMessage(
+            cashierPrecisionMode
+                ? 'Slow precision scanner gestart. Houd barcode dichtbij en stabiel.'
+                : 'Camera scanner gestart. Richt op barcode.',
+            'info'
+        );
     } catch (error) {
         console.error('html5-qrcode scan error:', error);
         showCashierMessage('Camera kon niet gestart worden.', 'error');
         stopCameraBarcodeScan();
     }
+}
+
+async function getCameraStreamWithFallback(precisionMode) {
+    const candidates = precisionMode
+        ? [CAMERA_CONSTRAINTS_PRECISION, CAMERA_CONSTRAINTS_NORMAL, { facingMode: 'environment' }, true]
+        : [CAMERA_CONSTRAINTS_NORMAL, { facingMode: 'environment' }, CAMERA_CONSTRAINTS_PRECISION, true];
+
+    for (let i = 0; i < candidates.length; i += 1) {
+        try {
+            const videoConstraint = candidates[i];
+            return await navigator.mediaDevices.getUserMedia({
+                video: videoConstraint,
+                audio: false
+            });
+        } catch {
+            // Try next constraints profile.
+        }
+    }
+
+    throw new Error('Geen werkende camera constraints gevonden');
 }
 
 function getUpscaledScanCanvas(video) {

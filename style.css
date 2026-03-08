@@ -463,6 +463,11 @@ body {
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.neutral-btn.active {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.15);
+}
+
 .primary-btn:hover,
 .success-btn:hover,
 .danger-btn:hover,
