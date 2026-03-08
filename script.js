@@ -17,6 +17,7 @@ let cashierScannerMode = '';
 let cashierHtml5Qr = null;
 let cashierPrecisionMode = false;
 let cashierConnectivityTimer = null;
+let sharedDataSyncTimer = null;
 
 const CAMERA_CONSTRAINTS_NORMAL = {
     facingMode: { ideal: 'environment' },
@@ -85,6 +86,26 @@ async function syncProductsFromServer() {
     if (!response.ok || !data || !Array.isArray(data.products)) return false;
     localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(data.products));
     return true;
+}
+
+function setStoredTransactionsLocal(transactions) {
+    localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(transactions));
+}
+
+async function syncTransactionsFromServer() {
+    const { response, data } = await apiRequest('./api/transactions', { method: 'GET', cache: 'no-store' });
+    if (!response.ok || !data || !Array.isArray(data.transactions)) return false;
+    setStoredTransactionsLocal(data.transactions);
+    return true;
+}
+
+async function persistTransactions(transactions) {
+    setStoredTransactionsLocal(transactions);
+    const { response } = await apiRequest('./api/transactions', {
+        method: 'PUT',
+        body: JSON.stringify({ transactions })
+    });
+    return response.ok;
 }
 
 function setStoredFairsLocal(fairs) {
@@ -230,6 +251,7 @@ async function initializeAppForRole(requiredRole) {
     if (!session) return;
     await syncProductsFromServer();
     await syncFairsFromServer();
+    await syncTransactionsFromServer();
 
     if (requiredRole === 'admin') {
         initializeTopNavigation();
@@ -252,6 +274,31 @@ async function initializeAppForRole(requiredRole) {
 
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) logoutBtn.addEventListener('click', logout);
+    startSharedDataSync(requiredRole);
+}
+
+function startSharedDataSync(role) {
+    if (sharedDataSyncTimer) {
+        clearInterval(sharedDataSyncTimer);
+    }
+    sharedDataSyncTimer = setInterval(async () => {
+        await syncProductsFromServer();
+        await syncFairsFromServer();
+        await syncTransactionsFromServer();
+
+        if (role === 'admin') {
+            renderDashboardAgenda();
+            renderDashboardOverview();
+            renderPlannedFairsTable();
+            renderTransactionsTable();
+            renderAssignTransactionsTable();
+            renderPastFairsPage();
+            const searchInput = document.getElementById('productSearchInput');
+            if (searchInput) renderSearchResults(searchInput.value);
+        } else if (role === 'cashier') {
+            renderCashierCart();
+        }
+    }, 10000);
 }
 
 function updateSessionTime(loginTime) {
@@ -309,7 +356,7 @@ function initializeAssignTransactionsPage() {
 
     if (assignBtn) {
         assignBtn.addEventListener('click', () => {
-            assignSelectedTransactionsToFair();
+            void assignSelectedTransactionsToFair();
         });
     }
 
@@ -852,7 +899,7 @@ async function processCheckout() {
     });
 
     await persistProducts(products, true);
-    appendTransaction({
+    await appendTransaction({
         id: generateId(),
         createdAt: now,
         cashier: getCurrentUserName(),
@@ -1691,13 +1738,14 @@ function getStoredTransactions() {
 }
 
 function saveStoredTransactions(transactions) {
-    localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(transactions));
+    setStoredTransactionsLocal(transactions);
+    void persistTransactions(transactions);
 }
 
-function appendTransaction(transaction) {
+async function appendTransaction(transaction) {
     const transactions = getStoredTransactions();
     transactions.push(transaction);
-    saveStoredTransactions(transactions);
+    await persistTransactions(transactions);
     updateAssignTransactionsTabVisibility();
     renderAssignTransactionsTable();
 }
@@ -1742,7 +1790,7 @@ async function cancelTransaction(transactionId) {
     };
 
     await persistProducts(products);
-    saveStoredTransactions(transactions);
+    await persistTransactions(transactions);
     renderTransactionsTable();
     renderAssignTransactionsTable();
     updateAssignTransactionsTabVisibility();
@@ -1861,7 +1909,7 @@ function getSelectedTransactionIdsForAssignment() {
     }).filter(Boolean);
 }
 
-function assignSelectedTransactionsToFair() {
+async function assignSelectedTransactionsToFair() {
     const fairSelect = document.getElementById('assignTransactionFairSelect');
     if (!(fairSelect instanceof HTMLSelectElement)) return;
 
@@ -1885,7 +1933,7 @@ function assignSelectedTransactionsToFair() {
         return { ...transaction, fairIds: [fairId] };
     });
 
-    saveStoredTransactions(updatedTransactions);
+    await persistTransactions(updatedTransactions);
     renderTransactionsTable();
     renderAssignTransactionsTable();
     renderPastFairsPage();
@@ -2861,6 +2909,10 @@ function logout() {
         if (cashierConnectivityTimer) {
             clearInterval(cashierConnectivityTimer);
             cashierConnectivityTimer = null;
+        }
+        if (sharedDataSyncTimer) {
+            clearInterval(sharedDataSyncTimer);
+            sharedDataSyncTimer = null;
         }
         apiRequest('./api/logout', { method: 'POST' })
             .finally(() => {

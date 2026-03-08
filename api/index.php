@@ -66,6 +66,19 @@ function get_db(): PDO {
             created_at TEXT
         )'
     );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS transactions (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            cashier TEXT,
+            total_items INTEGER NOT NULL DEFAULT 0,
+            total_amount REAL NOT NULL DEFAULT 0,
+            items_json TEXT NOT NULL DEFAULT "[]",
+            fair_ids_json TEXT NOT NULL DEFAULT "[]",
+            canceled INTEGER NOT NULL DEFAULT 0,
+            canceled_at TEXT
+        )'
+    );
 
     seed_defaults($pdo);
     return $pdo;
@@ -350,6 +363,91 @@ try {
                     ':end_time' => $fair['endTime'],
                     ':notes' => $fair['notes'],
                     ':created_at' => $fair['createdAt']
+                ]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        json_response(200, ['success' => true, 'count' => count($normalized)]);
+    }
+
+    if ($method === 'GET' && $segments === ['transactions']) {
+        require_user();
+        $stmt = $pdo->query(
+            'SELECT id, created_at, cashier, total_items, total_amount, items_json, fair_ids_json, canceled, canceled_at
+             FROM transactions ORDER BY created_at DESC'
+        );
+        $transactions = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $items = json_decode((string)$row['items_json'], true);
+            $fairIds = json_decode((string)$row['fair_ids_json'], true);
+            $transactions[] = [
+                'id' => (string)$row['id'],
+                'createdAt' => (string)$row['created_at'],
+                'cashier' => $row['cashier'] !== null ? (string)$row['cashier'] : '',
+                'totalItems' => (int)$row['total_items'],
+                'totalAmount' => (float)$row['total_amount'],
+                'items' => is_array($items) ? $items : [],
+                'fairIds' => is_array($fairIds) ? $fairIds : [],
+                'canceled' => ((int)$row['canceled'] === 1),
+                'canceledAt' => $row['canceled_at'] !== null ? (string)$row['canceled_at'] : null
+            ];
+        }
+        json_response(200, ['transactions' => $transactions]);
+    }
+
+    if ($method === 'PUT' && $segments === ['transactions']) {
+        require_user();
+        $body = get_json_body();
+        $incoming = $body['transactions'] ?? null;
+        if (!is_array($incoming)) {
+            json_response(422, ['message' => 'Ongeldige transactiepayload.']);
+        }
+
+        $normalized = [];
+        foreach ($incoming as $item) {
+            if (!is_array($item)) continue;
+            $id = trim((string)($item['id'] ?? ''));
+            $createdAt = trim((string)($item['createdAt'] ?? ''));
+            if ($id === '' || $createdAt === '') continue;
+
+            $items = isset($item['items']) && is_array($item['items']) ? $item['items'] : [];
+            $fairIds = isset($item['fairIds']) && is_array($item['fairIds']) ? array_values($item['fairIds']) : [];
+
+            $normalized[] = [
+                'id' => $id,
+                'createdAt' => $createdAt,
+                'cashier' => (string)($item['cashier'] ?? ''),
+                'totalItems' => (int)($item['totalItems'] ?? 0),
+                'totalAmount' => (float)($item['totalAmount'] ?? 0),
+                'itemsJson' => json_encode($items, JSON_UNESCAPED_UNICODE),
+                'fairIdsJson' => json_encode($fairIds, JSON_UNESCAPED_UNICODE),
+                'canceled' => !empty($item['canceled']) ? 1 : 0,
+                'canceledAt' => isset($item['canceledAt']) ? (string)$item['canceledAt'] : null
+            ];
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->exec('DELETE FROM transactions');
+            $insert = $pdo->prepare(
+                'INSERT INTO transactions (id, created_at, cashier, total_items, total_amount, items_json, fair_ids_json, canceled, canceled_at)
+                 VALUES (:id, :created_at, :cashier, :total_items, :total_amount, :items_json, :fair_ids_json, :canceled, :canceled_at)'
+            );
+            foreach ($normalized as $transaction) {
+                $insert->execute([
+                    ':id' => $transaction['id'],
+                    ':created_at' => $transaction['createdAt'],
+                    ':cashier' => $transaction['cashier'],
+                    ':total_items' => $transaction['totalItems'],
+                    ':total_amount' => $transaction['totalAmount'],
+                    ':items_json' => $transaction['itemsJson'],
+                    ':fair_ids_json' => $transaction['fairIdsJson'],
+                    ':canceled' => $transaction['canceled'],
+                    ':canceled_at' => $transaction['canceledAt']
                 ]);
             }
             $pdo->commit();
