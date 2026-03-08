@@ -31,41 +31,37 @@
             </nav>
 
             <section id="pageDashboard" class="dashboard-page active">
+                <div class="dashboard-info">
+                    <h3>Agenda</h3>
+                    <div id="dashboardAgendaSummary" class="agenda-summary">Nog geen beurzen ingepland.</div>
+                    <div id="dashboardAgendaList" class="agenda-list"></div>
+                </div>
+
                 <div class="dashboard-header">
                     <h2>Welkom op het Dashboard</h2>
                     <p>Goedendag, <span id="dashboardUserName">Admin</span>!</p>
                 </div>
 
-                <div class="dashboard-grid">
-                    <div class="dashboard-card">
-                        <div class="card-icon">Overzicht</div>
-                        <h3>Overzicht</h3>
-                        <p>Bekijk de statistieken en gegevens van de beurs.</p>
-                    </div>
-
-                    <div class="dashboard-card">
-                        <div class="card-icon">Voorraad toevoegen</div>
-                        <h3>Voorraad toevoegen</h3>
-                        <p>Voeg nieuwe LP's toe via barcode scan.</p>
-                    </div>
-
-                    <div class="dashboard-card">
-                        <div class="card-icon">Beurzen plannen</div>
-                        <h3>Beurzen plannen</h3>
-                        <p>Plan je beursdata en bekijk ze in de agenda.</p>
-                    </div>
-
-                    <div class="dashboard-card">
-                        <div class="card-icon">Zoeken en beheren</div>
-                        <h3>Zoeken en beheren</h3>
-                        <p>Zoek, beheer en verwijder producten.</p>
-                    </div>
-                </div>
-
                 <div class="dashboard-info">
-                    <h3>Agenda</h3>
-                    <div id="dashboardAgendaSummary" class="agenda-summary">Nog geen beurzen ingepland.</div>
-                    <div id="dashboardAgendaList" class="agenda-list"></div>
+                    <h3>Overzicht</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Aantal Producten</label>
+                            <span id="overviewTotalProducts">0</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Totaal Voorraad</label>
+                            <span id="overviewTotalStock">0</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Voorraadwaarde (inkoop)</label>
+                            <span id="overviewInventoryValue">EUR 0,00</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Komende Beurzen</label>
+                            <span id="overviewUpcomingFairs">0</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="dashboard-info">

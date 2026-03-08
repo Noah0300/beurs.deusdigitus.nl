@@ -155,15 +155,8 @@ function updateSessionTime(loginTime) {
 }
 
 function initializeDashboard() {
-    const dashboardCards = document.querySelectorAll('.dashboard-card');
-    dashboardCards.forEach((card) => {
-        card.addEventListener('click', function () {
-            const cardText = card.querySelector('h3').textContent;
-            console.log(`Navigeren naar: ${cardText}`);
-        });
-    });
-
     renderDashboardAgenda();
+    renderDashboardOverview();
 }
 
 function initializeTopNavigation() {
@@ -216,6 +209,7 @@ function showDashboardPage(pageId) {
 
     if (pageId === 'pageDashboard') {
         renderDashboardAgenda();
+        renderDashboardOverview();
     }
 }
 
@@ -1290,6 +1284,7 @@ function renderDashboardAgenda() {
     if (fairs.length === 0) {
         agendaSummary.textContent = 'Nog geen beurzen ingepland.';
         agendaList.innerHTML = '<div class="empty-row">Plan je eerste beurs via "Beurzen plannen".</div>';
+        renderDashboardOverview();
         return;
     }
 
@@ -1305,6 +1300,37 @@ function renderDashboardAgenda() {
             </div>
         </article>
     `).join('');
+
+    renderDashboardOverview();
+}
+
+function renderDashboardOverview() {
+    const totalProductsEl = document.getElementById('overviewTotalProducts');
+    const totalStockEl = document.getElementById('overviewTotalStock');
+    const inventoryValueEl = document.getElementById('overviewInventoryValue');
+    const upcomingFairsEl = document.getElementById('overviewUpcomingFairs');
+    if (!totalProductsEl || !totalStockEl || !inventoryValueEl || !upcomingFairsEl) return;
+
+    const products = getStoredProducts();
+    const fairs = getStoredFairs();
+    const today = getTodayDateString();
+
+    const totalProducts = products.length;
+    const totalStock = products.reduce((sum, product) => {
+        const stock = Number.isFinite(product.stock) ? product.stock : 0;
+        return sum + stock;
+    }, 0);
+    const inventoryValue = products.reduce((sum, product) => {
+        const stock = Number.isFinite(product.stock) ? product.stock : 0;
+        const purchasePrice = Number.isFinite(product.purchasePrice) ? product.purchasePrice : 0;
+        return sum + (stock * purchasePrice);
+    }, 0);
+    const upcomingFairs = fairs.filter((fair) => String(fair.date || '') >= today).length;
+
+    totalProductsEl.textContent = String(totalProducts);
+    totalStockEl.textContent = String(totalStock);
+    inventoryValueEl.textContent = `EUR ${formatCurrency(inventoryValue)}`;
+    upcomingFairsEl.textContent = String(upcomingFairs);
 }
 
 function formatDateDisplay(dateString) {
