@@ -42,6 +42,18 @@ function get_db(): PDO {
             created_at TEXT NOT NULL
         )'
     );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS products (
+            barcode TEXT PRIMARY KEY,
+            artist TEXT NOT NULL,
+            album TEXT NOT NULL,
+            purchase_price REAL NOT NULL DEFAULT 0,
+            sale_price REAL NOT NULL DEFAULT 0,
+            stock INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )'
+    );
 
     seed_defaults($pdo);
     return $pdo;
@@ -183,6 +195,81 @@ try {
         json_response(200, ['users' => $users]);
     }
 
+    if ($method === 'GET' && $segments === ['products']) {
+        require_user();
+        $stmt = $pdo->query(
+            'SELECT barcode, artist, album, purchase_price, sale_price, stock, created_at, updated_at
+             FROM products ORDER BY artist COLLATE NOCASE ASC, album COLLATE NOCASE ASC'
+        );
+        $products = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $products[] = [
+                'barcode' => (string)$row['barcode'],
+                'artist' => (string)$row['artist'],
+                'album' => (string)$row['album'],
+                'purchasePrice' => (float)$row['purchase_price'],
+                'salePrice' => (float)$row['sale_price'],
+                'stock' => (int)$row['stock'],
+                'createdAt' => $row['created_at'] !== null ? (string)$row['created_at'] : null,
+                'updatedAt' => $row['updated_at'] !== null ? (string)$row['updated_at'] : null
+            ];
+        }
+        json_response(200, ['products' => $products]);
+    }
+
+    if ($method === 'PUT' && $segments === ['products']) {
+        require_user();
+        $body = get_json_body();
+        $incoming = $body['products'] ?? null;
+        if (!is_array($incoming)) {
+            json_response(422, ['message' => 'Ongeldige productpayload.']);
+        }
+
+        $normalized = [];
+        foreach ($incoming as $item) {
+            if (!is_array($item)) continue;
+            $barcode = trim((string)($item['barcode'] ?? ''));
+            if ($barcode === '') continue;
+            $normalized[] = [
+                'barcode' => $barcode,
+                'artist' => trim((string)($item['artist'] ?? '')),
+                'album' => trim((string)($item['album'] ?? '')),
+                'purchasePrice' => (float)($item['purchasePrice'] ?? 0),
+                'salePrice' => (float)($item['salePrice'] ?? 0),
+                'stock' => (int)($item['stock'] ?? 0),
+                'createdAt' => isset($item['createdAt']) ? (string)$item['createdAt'] : null,
+                'updatedAt' => isset($item['updatedAt']) ? (string)$item['updatedAt'] : null
+            ];
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->exec('DELETE FROM products');
+            $insert = $pdo->prepare(
+                'INSERT INTO products (barcode, artist, album, purchase_price, sale_price, stock, created_at, updated_at)
+                 VALUES (:barcode, :artist, :album, :purchase_price, :sale_price, :stock, :created_at, :updated_at)'
+            );
+            foreach ($normalized as $product) {
+                $insert->execute([
+                    ':barcode' => $product['barcode'],
+                    ':artist' => $product['artist'],
+                    ':album' => $product['album'],
+                    ':purchase_price' => $product['purchasePrice'],
+                    ':sale_price' => $product['salePrice'],
+                    ':stock' => $product['stock'],
+                    ':created_at' => $product['createdAt'],
+                    ':updated_at' => $product['updatedAt']
+                ]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        json_response(200, ['success' => true, 'count' => count($normalized)]);
+    }
+
     if ($method === 'POST' && $segments === ['users']) {
         require_main_admin();
         $body = get_json_body();
@@ -238,4 +325,3 @@ try {
 } catch (Throwable $e) {
     json_response(500, ['message' => 'Serverfout.', 'error' => $e->getMessage()]);
 }
-

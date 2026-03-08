@@ -80,6 +80,26 @@ async function apiRequest(path, options = {}) {
     return { response, data };
 }
 
+async function syncProductsFromServer() {
+    const { response, data } = await apiRequest('./api/products', { method: 'GET', cache: 'no-store' });
+    if (!response.ok || !data || !Array.isArray(data.products)) return false;
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(data.products));
+    return true;
+}
+
+async function persistProducts(products, showSyncError = false) {
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    const { response, data } = await apiRequest('./api/products', {
+        method: 'PUT',
+        body: JSON.stringify({ products })
+    });
+    if (!response.ok && showSyncError) {
+        const message = data && data.message ? data.message : 'Voorraad kon niet met server synchroniseren.';
+        showCashierMessage(message, 'error');
+    }
+    return response.ok;
+}
+
 function cleanupLiveDataOnce() {
     try {
         if (localStorage.getItem(LIVE_DATA_CLEANUP_KEY) === 'done') return;
@@ -188,6 +208,7 @@ async function checkAuthentication(requiredRole = null) {
 async function initializeAppForRole(requiredRole) {
     const session = await checkAuthentication(requiredRole);
     if (!session) return;
+    await syncProductsFromServer();
 
     if (requiredRole === 'admin') {
         initializeTopNavigation();
@@ -254,7 +275,7 @@ function initializeTransactionsPage() {
 
             const transactionId = target.getAttribute('data-transaction-id') || '';
             if (!transactionId) return;
-            cancelTransaction(transactionId);
+            void cancelTransaction(transactionId);
         });
     }
     renderTransactionsTable();
@@ -762,7 +783,7 @@ function renderCashierCart() {
     totalElement.textContent = `EUR ${formatCurrency(total)}`;
 }
 
-function processCheckout() {
+async function processCheckout() {
     if (cashierCart.length === 0) {
         showCashierMessage('Winkelmandje is leeg.', 'error');
         return;
@@ -809,7 +830,7 @@ function processCheckout() {
         products[index].updatedAt = now;
     });
 
-    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    await persistProducts(products, true);
     appendTransaction({
         id: generateId(),
         createdAt: now,
@@ -827,8 +848,12 @@ function processCheckout() {
 
 async function startCameraBarcodeScan() {
     if (cashierScannerActive) return;
+    if (!window.isSecureContext) {
+        showCashierMessage('Camera werkt op iPhone Safari alleen via HTTPS.', 'error');
+        return;
+    }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showCashierMessage('Camera wordt niet ondersteund op dit apparaat.', 'error');
+        showCashierMessage('Camera API niet beschikbaar. Controleer Safari-toestemming en herlaad.', 'error');
         return;
     }
 
@@ -1169,7 +1194,7 @@ function initializeProductForm() {
     }
 
     if (commitAddedProductsBtn) {
-        commitAddedProductsBtn.addEventListener('click', () => {
+        commitAddedProductsBtn.addEventListener('click', async () => {
             if (sessionAddedProducts.length === 0) {
                 showProductFormMessage('Er zijn geen sessieproducten om door te voeren.', 'error');
                 return;
@@ -1208,7 +1233,7 @@ function initializeProductForm() {
                 }
             });
 
-            localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(storedProducts));
+            await persistProducts(storedProducts);
             sessionAddedProducts = [];
             renderProductsTable();
             renderSearchResults();
@@ -1264,7 +1289,7 @@ function initializeProductForm() {
     }
 }
 
-function saveStockValue(barcode, rawValue, currentQuery) {
+async function saveStockValue(barcode, rawValue, currentQuery) {
     const newStock = Number.parseInt(rawValue, 10);
     if (!Number.isInteger(newStock) || newStock < 0) {
         showSearchMessage('Vul een geldige voorraad in (0 of hoger).', 'error');
@@ -1280,12 +1305,12 @@ function saveStockValue(barcode, rawValue, currentQuery) {
 
     products[productIndex].stock = newStock;
     products[productIndex].updatedAt = new Date().toISOString();
-    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    await persistProducts(products);
     renderSearchResults(currentQuery);
     showSearchMessage('Voorraad opgeslagen.', 'success');
 }
 
-function saveSalePriceValue(barcode, rawValue, currentQuery) {
+async function saveSalePriceValue(barcode, rawValue, currentQuery) {
     const newSalePrice = Number.parseFloat(rawValue);
     if (!Number.isFinite(newSalePrice) || newSalePrice < 0) {
         showSearchMessage('Vul een geldige verkoopprijs in (0 of hoger).', 'error');
@@ -1301,7 +1326,7 @@ function saveSalePriceValue(barcode, rawValue, currentQuery) {
 
     products[productIndex].salePrice = roundCurrency(newSalePrice);
     products[productIndex].updatedAt = new Date().toISOString();
-    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    await persistProducts(products);
     renderSearchResults(currentQuery);
 }
 
@@ -1345,7 +1370,7 @@ function initializeProductSearch() {
         });
     });
 
-    searchResultsTableBody.addEventListener('click', (event) => {
+    searchResultsTableBody.addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
 
@@ -1360,7 +1385,7 @@ function initializeProductSearch() {
         if (target.classList.contains('stock-save-btn')) {
             const input = document.querySelector(`.stock-edit-input[data-barcode="${cssEscape(barcode)}"]`);
             if (!(input instanceof HTMLInputElement)) return;
-            saveStockValue(barcode, input.value, searchInput.value);
+            await saveStockValue(barcode, input.value, searchInput.value);
             closeStockEditor(barcode);
             return;
         }
@@ -1377,7 +1402,7 @@ function initializeProductSearch() {
             if (!confirmed) return;
 
             const updatedProducts = products.filter((item) => item.barcode !== barcode);
-            localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(updatedProducts));
+            await persistProducts(updatedProducts);
             renderSearchResults(searchInput.value);
             showSearchMessage('Product verwijderd uit de voorraad.', 'success');
         }
@@ -1390,7 +1415,7 @@ function initializeProductSearch() {
 
         const barcode = target.getAttribute('data-barcode') || '';
         if (!barcode) return;
-        saveSalePriceValue(barcode, target.value, searchInput.value);
+        void saveSalePriceValue(barcode, target.value, searchInput.value);
     });
 
     searchResultsTableBody.addEventListener('keydown', (event) => {
@@ -1401,7 +1426,7 @@ function initializeProductSearch() {
             event.preventDefault();
             const barcode = target.getAttribute('data-barcode') || '';
             if (!barcode) return;
-            saveStockValue(barcode, target.value, searchInput.value);
+            void saveStockValue(barcode, target.value, searchInput.value);
             closeStockEditor(barcode);
             return;
         }
@@ -1463,7 +1488,7 @@ function initializeImportTab() {
         importPreviewRows[rowIndex][field] = target.value;
     });
 
-    importRowsBtn.addEventListener('click', () => {
+    importRowsBtn.addEventListener('click', async () => {
         if (importPreviewRows.length === 0) {
             showImportMessage('Er is geen importpreview om door te voeren.', 'error');
             return;
@@ -1520,7 +1545,7 @@ function initializeImportTab() {
             }
         });
 
-        localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(storedProducts));
+        await persistProducts(storedProducts);
         importPreviewRows = [];
         renderImportPreviewTable();
         renderSearchResults();
@@ -1656,7 +1681,7 @@ function appendTransaction(transaction) {
     renderAssignTransactionsTable();
 }
 
-function cancelTransaction(transactionId) {
+async function cancelTransaction(transactionId) {
     const transactions = getStoredTransactions();
     const transactionIndex = transactions.findIndex((transaction) => transaction.id === transactionId);
     if (transactionIndex < 0) {
@@ -1695,7 +1720,7 @@ function cancelTransaction(transactionId) {
         canceledAt: now
     };
 
-    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    await persistProducts(products);
     saveStoredTransactions(transactions);
     renderTransactionsTable();
     renderAssignTransactionsTable();
