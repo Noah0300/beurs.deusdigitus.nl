@@ -66,21 +66,12 @@
                 </div>
 
                 <div class="dashboard-info">
-                    <h3>Systeem Informatie</h3>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <label>Actieve Sessie:</label>
-                            <span id="sessionTime">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Gebruiker:</label>
-                            <span id="sessionUser">Admin</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Status:</label>
-                            <span class="status-active">Actief</span>
-                        </div>
+                    <h3>Dagafsluiting</h3>
+                    <div class="form-actions end">
+                        <button type="button" id="generateClosingReportBtn" class="primary-btn">Genereer dagafsluiting</button>
                     </div>
+                    <div id="closingReportMessage" class="form-message" aria-live="polite"></div>
+                    <div id="closingReportResult" class="agenda-list"></div>
                 </div>
 
                 <div id="userManagementSection" class="dashboard-info">
@@ -149,11 +140,13 @@
                                         <th>Kassier</th>
                                         <th>Items</th>
                                         <th>Totaal</th>
+                                        <th>Status</th>
+                                        <th>Actie</th>
                                     </tr>
                                 </thead>
                                 <tbody id="transactionsTableBody">
                                     <tr>
-                                        <td colspan="4" class="empty-row">Nog geen transacties.</td>
+                                        <td colspan="6" class="empty-row">Nog geen transacties.</td>
                                     </tr>
                                 </tbody>
                             </table>

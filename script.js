@@ -83,6 +83,7 @@ if (isDashboardPage) {
     initializeTopNavigation();
     initializeDashboard();
     initializeTransactionsPage();
+    initializeClosingReport();
     initializeUserManagement();
     initializeProductForm();
     initializeFairPlanner();
@@ -173,10 +174,34 @@ function updateSessionTime(loginTime) {
 function initializeDashboard() {
     renderDashboardAgenda();
     renderDashboardOverview();
+    renderClosingReportResult(null);
 }
 
 function initializeTransactionsPage() {
+    const tableBody = document.getElementById('transactionsTableBody');
+    if (tableBody) {
+        tableBody.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (!target.classList.contains('cancel-transaction-btn')) return;
+
+            const transactionId = target.getAttribute('data-transaction-id') || '';
+            if (!transactionId) return;
+            cancelTransaction(transactionId);
+        });
+    }
     renderTransactionsTable();
+}
+
+function initializeClosingReport() {
+    const button = document.getElementById('generateClosingReportBtn');
+    if (!button) return;
+
+    button.addEventListener('click', () => {
+        const report = buildClosingReportForDate(getTodayDateString());
+        renderClosingReportResult(report);
+        showClosingReportMessage('Dagafsluiting gegenereerd voor vandaag.', 'success');
+    });
 }
 
 function initializeUserManagement() {
@@ -604,7 +629,9 @@ function processCheckout() {
         cashier: getCurrentUserName(),
         totalItems,
         totalAmount: roundCurrency(totalAmount),
-        items: soldItems
+        items: soldItems,
+        canceled: false,
+        canceledAt: null
     });
     cashierCart = [];
     renderCashierCart();
@@ -1432,6 +1459,52 @@ function appendTransaction(transaction) {
     saveStoredTransactions(transactions);
 }
 
+function cancelTransaction(transactionId) {
+    const transactions = getStoredTransactions();
+    const transactionIndex = transactions.findIndex((transaction) => transaction.id === transactionId);
+    if (transactionIndex < 0) {
+        showTransactionsMessage('Transactie niet gevonden.', 'error');
+        return;
+    }
+
+    const transaction = transactions[transactionIndex];
+    if (transaction.canceled) {
+        showTransactionsMessage('Transactie is al geannuleerd.', 'error');
+        return;
+    }
+
+    const confirmed = window.confirm('Transactie annuleren en voorraad terugboeken?');
+    if (!confirmed) return;
+
+    const products = getStoredProducts();
+    const now = new Date().toISOString();
+
+    (transaction.items || []).forEach((item) => {
+        const barcode = String(item.barcode || '');
+        const quantity = Number.isFinite(item.quantity) ? item.quantity : 0;
+        if (!barcode || quantity <= 0) return;
+
+        const index = products.findIndex((product) => String(product.barcode || '') === barcode);
+        if (index >= 0) {
+            const currentStock = Number.isFinite(products[index].stock) ? products[index].stock : 0;
+            products[index].stock = currentStock + quantity;
+            products[index].updatedAt = now;
+        }
+    });
+
+    transactions[transactionIndex] = {
+        ...transaction,
+        canceled: true,
+        canceledAt: now
+    };
+
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    saveStoredTransactions(transactions);
+    renderTransactionsTable();
+    renderDashboardOverview();
+    showTransactionsMessage('Transactie geannuleerd en voorraad hersteld.', 'success');
+}
+
 function renderTransactionsTable() {
     const tableBody = document.getElementById('transactionsTableBody');
     if (!tableBody) return;
@@ -1441,7 +1514,7 @@ function renderTransactionsTable() {
         .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
     if (transactions.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="4" class="empty-row">Nog geen transacties.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="6" class="empty-row">Nog geen transacties.</td></tr>';
         return;
     }
 
@@ -1451,8 +1524,77 @@ function renderTransactionsTable() {
             <td>${escapeHtml(transaction.cashier || '')}</td>
             <td>${Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0}</td>
             <td>EUR ${formatCurrency(transaction.totalAmount)}</td>
+            <td>${transaction.canceled ? 'Geannuleerd' : 'Actief'}</td>
+            <td>
+                ${transaction.canceled
+                    ? '<span class="empty-row">-</span>'
+                    : `<button type="button" class="danger-btn cancel-transaction-btn" data-transaction-id="${escapeHtml(transaction.id)}">X</button>`}
+            </td>
         </tr>
     `).join('');
+}
+
+function showTransactionsMessage(message, type) {
+    const messageElement = document.getElementById('closingReportMessage');
+    if (!messageElement) return;
+
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
+function buildClosingReportForDate(dateString) {
+    const transactions = getStoredTransactions().filter((transaction) => {
+        if (!transaction.createdAt) return false;
+        return transaction.createdAt.slice(0, 10) === dateString;
+    });
+
+    const totalTransactions = transactions.length;
+    const canceledTransactions = transactions.filter((transaction) => transaction.canceled).length;
+    const activeTransactions = totalTransactions - canceledTransactions;
+    const totalItemsSold = transactions
+        .filter((transaction) => !transaction.canceled)
+        .reduce((sum, transaction) => sum + (Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0), 0);
+    const grossRevenue = transactions
+        .filter((transaction) => !transaction.canceled)
+        .reduce((sum, transaction) => sum + (Number.isFinite(transaction.totalAmount) ? transaction.totalAmount : 0), 0);
+
+    return {
+        date: dateString,
+        totalTransactions,
+        activeTransactions,
+        canceledTransactions,
+        totalItemsSold,
+        grossRevenue: roundCurrency(grossRevenue)
+    };
+}
+
+function renderClosingReportResult(report) {
+    const container = document.getElementById('closingReportResult');
+    if (!container) return;
+
+    if (!report) {
+        container.innerHTML = '<div class="empty-row">Nog geen dagafsluiting gegenereerd.</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <article class="agenda-item">
+            <div class="agenda-item-date">${escapeHtml(formatDateDisplay(report.date))}</div>
+            <div class="agenda-item-content">
+                <h4>Dagafsluiting rapport</h4>
+                <p>Transacties: ${report.totalTransactions} (actief: ${report.activeTransactions}, geannuleerd: ${report.canceledTransactions})</p>
+                <p>Verkochte items: ${report.totalItemsSold}</p>
+                <p>Omzet (bruto): EUR ${formatCurrency(report.grossRevenue)}</p>
+            </div>
+        </article>
+    `;
+}
+
+function showClosingReportMessage(message, type) {
+    showTransactionsMessage(message, type);
 }
 
 function saveStoredFairs(fairs) {
