@@ -1,12 +1,15 @@
+DirectoryIndex index.html
 RewriteEngine On
+RewriteBase /
 
-# Canonical URLs zonder .html
-RewriteCond %{THE_REQUEST} \s/+(index|dashboard|cashier)\.html[\s?] [NC]
-RewriteRule ^ %1 [R=301,L]
+# 1) Laat API-routes met rust (api/.htaccess handelt dit af)
+RewriteRule ^api/ - [L]
 
-# Mooie routes -> bestaande HTML bestanden
+# 2) Canonical zonder .html
+RewriteRule ^(index|dashboard|cashier)\.html$ /$1 [R=301,L,NC]
+
+# 3) Mooie routes -> bestaande HTML bestanden
 RewriteRule ^$ index.html [L]
-RewriteRule ^index/?$ index.html [L]
-RewriteRule ^dashboard/?$ dashboard.html [L]
-RewriteRule ^cashier/?$ cashier.html [L]
-
+RewriteRule ^index/?$ index.html [L,NC]
+RewriteRule ^dashboard/?$ dashboard.html [L,NC]
+RewriteRule ^cashier/?$ cashier.html [L,NC]
