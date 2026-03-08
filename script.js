@@ -1,6 +1,8 @@
-﻿// Hardcoded admin gebruiker
+﻿// Standaard gebruikers
+const MAIN_ADMIN_USERNAME = 'admin';
+const MAIN_ADMIN_PASSWORD = 'James123';
 const DEFAULT_USERS = [
-    { username: 'admin', password: 'admin123', role: 'admin', isMainAdmin: true },
+    { username: MAIN_ADMIN_USERNAME, password: MAIN_ADMIN_PASSWORD, role: 'admin', isMainAdmin: true },
     { username: 'cashier', password: 'cashier123', role: 'cashier', isMainAdmin: false }
 ];
 
@@ -2480,17 +2482,16 @@ function getStoredUsers() {
             }))
             .filter((item) => item.username && item.password);
 
-        const adminIndex = normalized.findIndex((item) => item.username === 'admin');
+        const adminIndex = normalized.findIndex((item) => item.username === MAIN_ADMIN_USERNAME);
         if (adminIndex >= 0) {
             normalized[adminIndex].role = 'admin';
             normalized[adminIndex].isMainAdmin = true;
-            if (!normalized[adminIndex].password) {
-                normalized[adminIndex].password = 'admin123';
-            }
+            normalized[adminIndex].password = MAIN_ADMIN_PASSWORD;
         } else {
-            normalized.push({ username: 'admin', password: 'admin123', role: 'admin', isMainAdmin: true });
+            normalized.push({ username: MAIN_ADMIN_USERNAME, password: MAIN_ADMIN_PASSWORD, role: 'admin', isMainAdmin: true });
         }
 
+        saveStoredUsers(normalized);
         return normalized;
     } catch {
         saveStoredUsers(DEFAULT_USERS);
@@ -2835,6 +2836,8 @@ window.addEventListener('pageshow', function (event) {
         if (isCashierPage) checkAuthentication('cashier');
     }
 });
+
+
 
 
 
