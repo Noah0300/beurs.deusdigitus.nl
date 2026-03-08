@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kassa - Deus Digitus</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="cashierApp" class="dashboard-container cashier-container">
+        <nav class="navbar">
+            <div class="navbar-content">
+                <div class="navbar-brand">
+                    <h1>Deus Digitus</h1>
+                    <p>Kassa</p>
+                </div>
+                <div class="navbar-user">
+                    <span id="userName">Cashier</span>
+                    <button id="logoutBtn" class="logout-btn">Uitloggen</button>
+                </div>
+            </div>
+        </nav>
+
+        <main class="dashboard-content">
+            <section class="inventory-section">
+                <div class="section-header">
+                    <h3>Verkopen</h3>
+                    <p>Scan barcode en reken direct af.</p>
+                </div>
+
+                <div class="product-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cashierBarcodeInput">Barcode</label>
+                            <input type="text" id="cashierBarcodeInput" inputmode="numeric" autocomplete="off" placeholder="Scan of typ barcode">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" id="cashierAddBtn" class="primary-btn">Voeg toe</button>
+                            <button type="button" id="cameraScanBtn" class="neutral-btn">Scan camera</button>
+                        </div>
+                    </div>
+                    <div id="cashierMessage" class="form-message" aria-live="polite"></div>
+                </div>
+
+                <div id="cashierScannerWrap" class="cashier-scanner hidden">
+                    <video id="cashierVideo" autoplay playsinline muted></video>
+                    <div class="form-actions">
+                        <button type="button" id="stopCameraScanBtn" class="danger-btn">Stop camera</button>
+                    </div>
+                </div>
+
+                <div class="products-list">
+                    <h4>Winkelmandje</h4>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Barcode</th>
+                                    <th>Artiest</th>
+                                    <th>Album</th>
+                                    <th>Aantal</th>
+                                    <th>Prijs</th>
+                                    <th>Subtotaal</th>
+                                    <th>Actie</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cashierCartTableBody">
+                                <tr>
+                                    <td colspan="7" class="empty-row">Winkelmandje is leeg.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="cashier-checkout">
+                        <div class="cashier-total">Totaal: <strong id="cashierTotalAmount">EUR 0,00</strong></div>
+                        <button type="button" id="checkoutBtn" class="success-btn">Afrekenen</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

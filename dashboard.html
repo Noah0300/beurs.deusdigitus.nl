@@ -20,59 +20,321 @@
                 </div>
             </div>
         </nav>
-        
+
         <div class="dashboard-content">
-            <div class="dashboard-header">
-                <h2>Welkom op het Dashboard</h2>
-                <p>Goedendag, <span id="dashboardUserName">Admin</span>!</p>
-            </div>
-            
-            <div class="dashboard-grid">
-                <div class="dashboard-card">
-                    <div class="card-icon">📊</div>
-                    <h3>Overzicht</h3>
-                    <p>Bekijk de statistieken en gegevens van de beurs.</p>
+            <nav class="section-nav" aria-label="Pagina navigatie">
+                <button type="button" class="section-nav-btn active" data-page-target="pageDashboard">Dashboard</button>
+                <button type="button" class="section-nav-btn" data-page-target="pageAddStock">Voorraad toevoegen</button>
+                <button type="button" class="section-nav-btn" data-page-target="pageUpdateStock">Beurzen plannen</button>
+                <button type="button" class="section-nav-btn" data-page-target="pageImport">Importeren</button>
+                <button type="button" class="section-nav-btn" data-page-target="pageSearchManage">Zoeken en beheren</button>
+            </nav>
+
+            <section id="pageDashboard" class="dashboard-page active">
+                <div class="dashboard-header">
+                    <h2>Welkom op het Dashboard</h2>
+                    <p>Goedendag, <span id="dashboardUserName">Admin</span>!</p>
                 </div>
-                
-                <div class="dashboard-card">
-                    <div class="card-icon">👥</div>
-                    <h3>Deelnemers</h3>
-                    <p>Beheer de deelnemers van de beurs.</p>
-                </div>
-                
-                <div class="dashboard-card">
-                    <div class="card-icon">⚙️</div>
-                    <h3>Instellingen</h3>
-                    <p>Configureer de systeeminstellingen.</p>
-                </div>
-                
-                <div class="dashboard-card">
-                    <div class="card-icon">📋</div>
-                    <h3>Rapporten</h3>
-                    <p>Genereer en bekijk rapporten.</p>
-                </div>
-            </div>
-            
-            <div class="dashboard-info">
-                <h3>Systeem Informatie</h3>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <label>Actieve Sessie:</label>
-                        <span id="sessionTime">-</span>
+
+                <div class="dashboard-grid">
+                    <div class="dashboard-card">
+                        <div class="card-icon">Overzicht</div>
+                        <h3>Overzicht</h3>
+                        <p>Bekijk de statistieken en gegevens van de beurs.</p>
                     </div>
-                    <div class="info-item">
-                        <label>Gebruiker:</label>
-                        <span id="sessionUser">Admin</span>
+
+                    <div class="dashboard-card">
+                        <div class="card-icon">Voorraad toevoegen</div>
+                        <h3>Voorraad toevoegen</h3>
+                        <p>Voeg nieuwe LP's toe via barcode scan.</p>
                     </div>
-                    <div class="info-item">
-                        <label>Status:</label>
-                        <span class="status-active">Actief</span>
+
+                    <div class="dashboard-card">
+                        <div class="card-icon">Beurzen plannen</div>
+                        <h3>Beurzen plannen</h3>
+                        <p>Plan je beursdata en bekijk ze in de agenda.</p>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="card-icon">Zoeken en beheren</div>
+                        <h3>Zoeken en beheren</h3>
+                        <p>Zoek, beheer en verwijder producten.</p>
                     </div>
                 </div>
-            </div>
+
+                <div class="dashboard-info">
+                    <h3>Agenda</h3>
+                    <div id="dashboardAgendaSummary" class="agenda-summary">Nog geen beurzen ingepland.</div>
+                    <div id="dashboardAgendaList" class="agenda-list"></div>
+                </div>
+
+                <div class="dashboard-info">
+                    <h3>Systeem Informatie</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Actieve Sessie:</label>
+                            <span id="sessionTime">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Gebruiker:</label>
+                            <span id="sessionUser">Admin</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Status:</label>
+                            <span class="status-active">Actief</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="pageAddStock" class="dashboard-page">
+                <section class="inventory-section" aria-labelledby="inventoryTitle">
+                    <div class="section-header">
+                        <h3 id="inventoryTitle">Voorraad toevoegen</h3>
+                        <p>Scan de barcode, controleer de koppeling en voeg het product toe aan je sessie.</p>
+                    </div>
+
+                    <form id="productForm" class="product-form" novalidate>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="barcodeInput">Barcode</label>
+                                <input type="text" id="barcodeInput" name="barcode" inputmode="numeric" autocomplete="off" placeholder="Scan of typ barcode" required>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" id="lookupBarcodeBtn" class="primary-btn">Zoek barcode</button>
+                            </div>
+                        </div>
+
+                        <div class="form-row two-cols">
+                            <div class="form-group">
+                                <label for="artistInput">Artiest</label>
+                                <input type="text" id="artistInput" name="artist" readonly required>
+                            </div>
+                            <div class="form-group">
+                                <label for="albumInput">Albumnaam</label>
+                                <input type="text" id="albumInput" name="album" readonly required>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" id="toggleManualMetadataBtn" class="neutral-btn">Handmatig aanpassen</button>
+                        </div>
+
+                        <div class="form-row three-cols">
+                            <div class="form-group">
+                                <label for="purchasePriceInput">Inkoopprijs (EUR)</label>
+                                <input type="number" id="purchasePriceInput" name="purchasePrice" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="salePriceInput">Verkoopprijs (EUR)</label>
+                                <input type="number" id="salePriceInput" name="salePrice" min="0" step="0.01" placeholder="0.00" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="stockInput">Hoeveelheid</label>
+                                <input type="number" id="stockInput" name="stock" min="0" step="1" placeholder="0" required>
+                            </div>
+                        </div>
+
+                        <div id="productFormMessage" class="form-message" aria-live="polite"></div>
+
+                        <div class="form-actions end">
+                            <button type="submit" id="saveProductBtn" class="success-btn" disabled>Product opslaan</button>
+                        </div>
+                    </form>
+
+                    <div class="products-list">
+                        <h4>Toegevoegde producten</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Barcode</th>
+                                        <th>Artiest</th>
+                                        <th>Album</th>
+                                        <th>Inkoop</th>
+                                        <th>Verkoop</th>
+                                        <th>Aantal</th>
+                                        <th>Actie</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="productsTableBody">
+                                    <tr>
+                                        <td colspan="7" class="empty-row">Nog geen producten toegevoegd in deze sessie.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="form-actions end session-submit-actions">
+                            <button type="button" id="commitAddedProductsBtn" class="primary-btn">Voer door</button>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <section id="pageUpdateStock" class="dashboard-page">
+                <section class="inventory-section" aria-labelledby="updateTitle">
+                    <div class="section-header">
+                        <h3 id="updateTitle">Beurzen plannen</h3>
+                        <p>Plan je beurzen en laat ze automatisch terugkomen in het dashboard-overzicht.</p>
+                    </div>
+
+                    <form id="fairPlannerForm" class="product-form" novalidate>
+                        <div class="form-row three-cols">
+                            <div class="form-group">
+                                <label for="fairNameInput">Beursnaam</label>
+                                <input type="text" id="fairNameInput" placeholder="Bijv. Record Planet Utrecht" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="fairCityInput">Locatie / Stad</label>
+                                <input type="text" id="fairCityInput" placeholder="Bijv. Utrecht" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="fairDateInput">Datum</label>
+                                <input type="date" id="fairDateInput" required>
+                            </div>
+                        </div>
+                        <div class="form-row two-cols">
+                            <div class="form-group">
+                                <label for="fairStartTimeInput">Starttijd (optioneel)</label>
+                                <input type="time" id="fairStartTimeInput">
+                            </div>
+                            <div class="form-group">
+                                <label for="fairEndTimeInput">Eindtijd (optioneel)</label>
+                                <input type="time" id="fairEndTimeInput">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="fairNotesInput">Notitie (optioneel)</label>
+                            <input type="text" id="fairNotesInput" placeholder="Bijv. 2 tafels, opbouw vanaf 07:30">
+                        </div>
+                        <div id="fairPlannerMessage" class="form-message" aria-live="polite"></div>
+                        <div class="form-actions end">
+                            <button type="submit" id="saveFairBtn" class="success-btn">Beurs opslaan</button>
+                        </div>
+                    </form>
+
+                    <div class="products-list">
+                        <h4>Geplande beurzen</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Datum</th>
+                                        <th>Beurs</th>
+                                        <th>Locatie</th>
+                                        <th>Tijd</th>
+                                        <th>Notitie</th>
+                                        <th>Actie</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="plannedFairsTableBody">
+                                    <tr>
+                                        <td colspan="6" class="empty-row">Nog geen beurzen gepland.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <section id="pageSearchManage" class="dashboard-page">
+                <section class="inventory-section" aria-labelledby="searchTitle">
+                    <div class="section-header">
+                        <h3 id="searchTitle">Zoeken en beheren</h3>
+                        <p>Zoek op barcode, artiest of albumnaam en beheer je voorraad.</p>
+                    </div>
+
+                    <div class="search-bar">
+                        <div class="form-group">
+                            <label for="productSearchInput">Zoeken</label>
+                            <input type="text" id="productSearchInput" placeholder="Bijv. barcode, artiest of albumnaam">
+                        </div>
+                    </div>
+
+                    <div id="searchMessage" class="form-message" aria-live="polite"></div>
+
+                    <div class="products-list">
+                        <div class="table-wrapper search-results-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Barcode</th>
+                                        <th>
+                                            <button type="button" class="sort-btn" data-sort-key="artist" id="sortArtistBtn">Artiest</button>
+                                        </th>
+                                        <th>
+                                            <button type="button" class="sort-btn" data-sort-key="album" id="sortAlbumBtn">Album</button>
+                                        </th>
+                                        <th>
+                                            <button type="button" class="sort-btn" data-sort-key="stock" id="sortStockBtn">Voorraad</button>
+                                        </th>
+                                    <th>
+                                        <button type="button" class="sort-btn" data-sort-key="salePrice" id="sortSalePriceBtn">Verkoopprijs</button>
+                                    </th>
+                                    <th>Acties</th>
+                                </tr>
+                            </thead>
+                            <tbody id="searchResultsTableBody">
+                                <tr>
+                                    <td colspan="6" class="empty-row">Nog geen producten beschikbaar.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <section id="pageImport" class="dashboard-page">
+                <section class="inventory-section" aria-labelledby="importTitle">
+                    <div class="section-header">
+                        <h3 id="importTitle">Importeren (CSV / XLSX)</h3>
+                        <p>Lees voorraadbestanden in, controleer de regels en importeer daarna naar je voorraad.</p>
+                    </div>
+
+                    <div class="product-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="importFileInput">Bestand</label>
+                                <input type="file" id="importFileInput" accept=".csv,.xlsx,.xls">
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" id="loadImportFileBtn" class="primary-btn">Bestand inlezen</button>
+                            </div>
+                        </div>
+                        <div id="importMessage" class="form-message" aria-live="polite"></div>
+                    </div>
+
+                    <div class="products-list">
+                        <h4>Import preview</h4>
+                        <div class="table-wrapper search-results-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Barcode</th>
+                                        <th>Artiest</th>
+                                        <th>Album</th>
+                                        <th>Inkoopprijs</th>
+                                        <th>Verkoopprijs</th>
+                                        <th>Voorraad</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="importPreviewTableBody">
+                                    <tr>
+                                        <td colspan="6" class="empty-row">Nog geen importbestand geladen.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="form-actions end session-submit-actions">
+                            <button type="button" id="importRowsBtn" class="success-btn">Importeer naar voorraad</button>
+                        </div>
+                    </div>
+                </section>
+            </section>
         </div>
     </div>
-    
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

@@ -1,45 +1,51 @@
-// Hardcoded admin gebruiker
-const ADMIN_USER = {
-    username: 'admin',
-    password: 'admin123'
-};
+﻿// Hardcoded admin gebruiker
+const USERS = [
+    { username: 'admin', password: 'admin123', role: 'admin' },
+    { username: 'cashier', password: 'cashier123', role: 'cashier' }
+];
 
 const SESSION_STORAGE_KEY = 'userSession';
+const PRODUCTS_STORAGE_KEY = 'vinylProducts';
+const BARCODE_METADATA_CACHE_KEY = 'barcodeMetadataCache';
+const FAIRS_STORAGE_KEY = 'plannedFairs';
+let sessionAddedProducts = [];
+let importPreviewRows = [];
+let cashierCart = [];
+let cashierVideoStream = null;
+let cashierScannerActive = false;
 
-// ==================== LOGIN PAGE ==================== 
+const SEARCH_SORT_STATE = {
+    key: 'artist',
+    direction: 'asc'
+};
 
-// Check if on login page and handle login form
+// ==================== LOGIN PAGE ====================
+
 if (document.getElementById('loginForm')) {
     const loginForm = document.getElementById('loginForm');
     const errorMessage = document.getElementById('errorMessage');
-    
-    loginForm.addEventListener('submit', function(e) {
+
+    loginForm.addEventListener('submit', function (e) {
         e.preventDefault();
-        
+
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
-        
-        // Validate credentials
-        if (username === ADMIN_USER.username && password === ADMIN_USER.password) {
-            // Store session
+
+        const matchedUser = USERS.find((user) => user.username === username && user.password === password);
+        if (matchedUser) {
             const sessionData = {
                 username: username,
+                role: matchedUser.role,
                 loginTime: new Date().toISOString(),
                 isAuthenticated: true
             };
             localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
-            
-            // Redirect to dashboard
-            window.location.href = 'dashboard.html';
+            window.location.href = matchedUser.role === 'admin' ? 'dashboard.html' : 'cashier.html';
         } else {
-            // Show error message
             errorMessage.textContent = 'Gebruikersnaam of wachtwoord is onjuist.';
             errorMessage.classList.add('show');
-            
-            // Clear password field
             document.getElementById('password').value = '';
-            
-            // Hide error after 5 seconds
+
             setTimeout(() => {
                 errorMessage.classList.remove('show');
             }, 5000);
@@ -47,59 +53,74 @@ if (document.getElementById('loginForm')) {
     });
 }
 
-// ==================== DASHBOARD PAGE ==================== 
+// ==================== DASHBOARD PAGE ====================
 
-// Check if on dashboard page
-if (document.getElementById('logoutBtn')) {
-    checkAuthentication();
+const isDashboardPage = !!document.querySelector('.section-nav');
+const isCashierPage = !!document.getElementById('cashierApp');
+
+if (isDashboardPage) {
+    checkAuthentication('admin');
+    initializeTopNavigation();
     initializeDashboard();
-    
+    initializeProductForm();
+    initializeFairPlanner();
+    initializeProductSearch();
+    initializeImportTab();
+    renderDashboardAgenda();
+
     document.getElementById('logoutBtn').addEventListener('click', logout);
 }
 
-function checkAuthentication() {
+if (isCashierPage) {
+    checkAuthentication('cashier');
+    initializeCashierPage();
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+}
+
+function checkAuthentication(requiredRole = null) {
     const sessionData = localStorage.getItem(SESSION_STORAGE_KEY);
-    
     if (!sessionData) {
-        // Not authenticated, redirect to login
         window.location.href = 'index.html';
         return;
     }
-    
+
     const session = JSON.parse(sessionData);
-    
-    // Optional: Check if session is expired (e.g., 24 hours)
+    if (requiredRole && session.role !== requiredRole) {
+        window.location.href = session.role === 'admin' ? 'dashboard.html' : 'cashier.html';
+        return;
+    }
     const loginTime = new Date(session.loginTime);
     const now = new Date();
     const hoursDiff = (now - loginTime) / (1000 * 60 * 60);
-    
+
     if (hoursDiff > 24) {
         localStorage.removeItem(SESSION_STORAGE_KEY);
         window.location.href = 'index.html';
         return;
     }
-    
-    // Update UI with username
+
     const displayName = session.username.charAt(0).toUpperCase() + session.username.slice(1);
-    document.getElementById('userName').textContent = displayName;
-    document.getElementById('dashboardUserName').textContent = displayName;
-    document.getElementById('sessionUser').textContent = displayName;
-    
-    // Update session time
-    updateSessionTime(loginTime);
+    const userNameElement = document.getElementById('userName');
+    if (userNameElement) userNameElement.textContent = displayName;
+    const dashboardUserNameElement = document.getElementById('dashboardUserName');
+    if (dashboardUserNameElement) dashboardUserNameElement.textContent = displayName;
+    const sessionUserElement = document.getElementById('sessionUser');
+    if (sessionUserElement) sessionUserElement.textContent = displayName;
+
+    const sessionTimeElement = document.getElementById('sessionTime');
+    if (sessionTimeElement) updateSessionTime(loginTime);
 }
 
 function updateSessionTime(loginTime) {
     const loginTimeElement = document.getElementById('sessionTime');
-    
+
     function updateDisplay() {
         const now = new Date();
         const diff = now - loginTime;
-        
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-        
+
         let timeString = '';
         if (hours > 0) {
             timeString = `${hours}h ${minutes}m ${seconds}s`;
@@ -108,43 +129,1659 @@ function updateSessionTime(loginTime) {
         } else {
             timeString = `${seconds}s`;
         }
-        
+
         loginTimeElement.textContent = timeString;
     }
-    
+
     updateDisplay();
     setInterval(updateDisplay, 1000);
 }
 
 function initializeDashboard() {
-    // Add click handlers to dashboard cards
     const dashboardCards = document.querySelectorAll('.dashboard-card');
-    dashboardCards.forEach((card, index) => {
-        card.addEventListener('click', function() {
+    dashboardCards.forEach((card) => {
+        card.addEventListener('click', function () {
             const cardText = card.querySelector('h3').textContent;
             console.log(`Navigeren naar: ${cardText}`);
-            // In een echte applicatie zou je hier navigeren naar de relevante pagina
+        });
+    });
+
+    renderDashboardAgenda();
+}
+
+function initializeTopNavigation() {
+    const navButtons = document.querySelectorAll('.section-nav-btn');
+    if (navButtons.length === 0) return;
+
+    navButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const targetPage = button.getAttribute('data-page-target');
+            if (!targetPage) return;
+            showDashboardPage(targetPage);
         });
     });
 }
 
+function showDashboardPage(pageId) {
+    const pages = document.querySelectorAll('.dashboard-page');
+    const navButtons = document.querySelectorAll('.section-nav-btn');
+
+    pages.forEach((page) => {
+        page.classList.toggle('active', page.id === pageId);
+    });
+
+    navButtons.forEach((button) => {
+        const target = button.getAttribute('data-page-target');
+        button.classList.toggle('active', target === pageId);
+    });
+
+    if (pageId === 'pageAddStock') {
+        const barcodeInput = document.getElementById('barcodeInput');
+        if (barcodeInput) barcodeInput.focus();
+    }
+
+    if (pageId === 'pageUpdateStock') {
+        renderPlannedFairsTable();
+        const fairNameInput = document.getElementById('fairNameInput');
+        if (fairNameInput) fairNameInput.focus();
+    }
+
+    if (pageId === 'pageSearchManage') {
+        const searchInput = document.getElementById('productSearchInput');
+        renderSearchResults(searchInput ? searchInput.value : '');
+        if (searchInput) searchInput.focus();
+    }
+
+    if (pageId === 'pageImport') {
+        const importFileInput = document.getElementById('importFileInput');
+        if (importFileInput) importFileInput.focus();
+    }
+
+    if (pageId === 'pageDashboard') {
+        renderDashboardAgenda();
+    }
+}
+
+function initializeCashierPage() {
+    const barcodeInput = document.getElementById('cashierBarcodeInput');
+    const addBtn = document.getElementById('cashierAddBtn');
+    const checkoutBtn = document.getElementById('checkoutBtn');
+    const cartTableBody = document.getElementById('cashierCartTableBody');
+    const cameraScanBtn = document.getElementById('cameraScanBtn');
+    const stopCameraScanBtn = document.getElementById('stopCameraScanBtn');
+    if (!barcodeInput || !addBtn || !checkoutBtn || !cartTableBody) return;
+
+    barcodeInput.focus();
+    renderCashierCart();
+
+    addBtn.addEventListener('click', () => {
+        addBarcodeToCart(barcodeInput.value);
+        barcodeInput.value = '';
+        barcodeInput.focus();
+    });
+
+    barcodeInput.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        addBarcodeToCart(barcodeInput.value);
+        barcodeInput.value = '';
+    });
+
+    cartTableBody.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+
+        const barcode = target.getAttribute('data-barcode') || '';
+        if (!barcode) return;
+
+        if (target.classList.contains('cashier-inc-btn')) {
+            changeCartQuantity(barcode, 1);
+            return;
+        }
+        if (target.classList.contains('cashier-dec-btn')) {
+            changeCartQuantity(barcode, -1);
+            return;
+        }
+        if (target.classList.contains('cashier-remove-btn')) {
+            removeFromCart(barcode);
+        }
+    });
+
+    checkoutBtn.addEventListener('click', () => {
+        processCheckout();
+    });
+
+    if (cameraScanBtn) {
+        cameraScanBtn.addEventListener('click', async () => {
+            await startCameraBarcodeScan();
+        });
+    }
+
+    if (stopCameraScanBtn) {
+        stopCameraScanBtn.addEventListener('click', () => {
+            stopCameraBarcodeScan();
+        });
+    }
+}
+
+function addBarcodeToCart(rawBarcode) {
+    const barcode = sanitizeBarcode(rawBarcode);
+    if (!barcode) {
+        showCashierMessage('Scan of vul een barcode in.', 'error');
+        return;
+    }
+
+    const candidates = getBarcodeCandidates(barcode);
+    const products = getStoredProducts();
+    const product = products.find((item) => candidates.includes(String(item.barcode || '')));
+    if (!product) {
+        showCashierMessage('Product niet gevonden in voorraad.', 'error');
+        return;
+    }
+
+    const availableStock = Number.isFinite(product.stock) ? product.stock : 0;
+    const currentQty = getCartQuantityForBarcode(product.barcode);
+    if (availableStock <= currentQty) {
+        showCashierMessage('Onvoldoende voorraad voor dit product.', 'error');
+        return;
+    }
+
+    const existingIndex = cashierCart.findIndex((item) => item.barcode === product.barcode);
+    if (existingIndex >= 0) {
+        cashierCart[existingIndex].quantity += 1;
+    } else {
+        cashierCart.push({
+            barcode: product.barcode,
+            artist: product.artist,
+            album: product.album,
+            salePrice: Number.isFinite(product.salePrice) ? product.salePrice : 0,
+            quantity: 1
+        });
+    }
+
+    renderCashierCart();
+    showCashierMessage('Product toegevoegd aan winkelmandje.', 'success');
+}
+
+function getCartQuantityForBarcode(barcode) {
+    const item = cashierCart.find((entry) => entry.barcode === barcode);
+    return item ? item.quantity : 0;
+}
+
+function changeCartQuantity(barcode, delta) {
+    const index = cashierCart.findIndex((item) => item.barcode === barcode);
+    if (index < 0) return;
+
+    const products = getStoredProducts();
+    const stockItem = products.find((item) => item.barcode === barcode);
+    const maxStock = stockItem && Number.isFinite(stockItem.stock) ? stockItem.stock : 0;
+    const nextQty = cashierCart[index].quantity + delta;
+
+    if (nextQty <= 0) {
+        cashierCart.splice(index, 1);
+        renderCashierCart();
+        return;
+    }
+    if (nextQty > maxStock) {
+        showCashierMessage('Onvoldoende voorraad voor deze hoeveelheid.', 'error');
+        return;
+    }
+
+    cashierCart[index].quantity = nextQty;
+    renderCashierCart();
+}
+
+function removeFromCart(barcode) {
+    cashierCart = cashierCart.filter((item) => item.barcode !== barcode);
+    renderCashierCart();
+}
+
+function renderCashierCart() {
+    const tableBody = document.getElementById('cashierCartTableBody');
+    const totalElement = document.getElementById('cashierTotalAmount');
+    if (!tableBody || !totalElement) return;
+
+    if (cashierCart.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="7" class="empty-row">Winkelmandje is leeg.</td></tr>';
+        totalElement.textContent = 'EUR 0,00';
+        return;
+    }
+
+    let total = 0;
+    tableBody.innerHTML = cashierCart.map((item) => {
+        const subtotal = (Number(item.salePrice) || 0) * item.quantity;
+        total += subtotal;
+        return `
+            <tr>
+                <td>${escapeHtml(item.barcode)}</td>
+                <td>${escapeHtml(item.artist || '')}</td>
+                <td>${escapeHtml(item.album || '')}</td>
+                <td>
+                    <div class="stock-update-controls">
+                        <button type="button" class="neutral-btn cashier-dec-btn" data-barcode="${escapeHtml(item.barcode)}">-</button>
+                        <span>${item.quantity}</span>
+                        <button type="button" class="neutral-btn cashier-inc-btn" data-barcode="${escapeHtml(item.barcode)}">+</button>
+                    </div>
+                </td>
+                <td>EUR ${formatCurrency(item.salePrice)}</td>
+                <td>EUR ${formatCurrency(subtotal)}</td>
+                <td><button type="button" class="danger-btn cashier-remove-btn" data-barcode="${escapeHtml(item.barcode)}">Verwijder</button></td>
+            </tr>
+        `;
+    }).join('');
+
+    totalElement.textContent = `EUR ${formatCurrency(total)}`;
+}
+
+function processCheckout() {
+    if (cashierCart.length === 0) {
+        showCashierMessage('Winkelmandje is leeg.', 'error');
+        return;
+    }
+
+    const products = getStoredProducts();
+    for (let i = 0; i < cashierCart.length; i += 1) {
+        const cartItem = cashierCart[i];
+        const index = products.findIndex((item) => item.barcode === cartItem.barcode);
+        if (index < 0) {
+            showCashierMessage(`Product ${cartItem.barcode} niet meer beschikbaar.`, 'error');
+            return;
+        }
+
+        const available = Number.isFinite(products[index].stock) ? products[index].stock : 0;
+        if (available < cartItem.quantity) {
+            showCashierMessage(`Onvoldoende voorraad voor ${cartItem.artist} - ${cartItem.album}.`, 'error');
+            return;
+        }
+    }
+
+    const now = new Date().toISOString();
+    cashierCart.forEach((cartItem) => {
+        const index = products.findIndex((item) => item.barcode === cartItem.barcode);
+        products[index].stock -= cartItem.quantity;
+        products[index].updatedAt = now;
+    });
+
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    cashierCart = [];
+    renderCashierCart();
+    showCashierMessage('Afrekenen voltooid. Voorraad is bijgewerkt.', 'success');
+}
+
+async function startCameraBarcodeScan() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showCashierMessage('Camera wordt niet ondersteund op dit apparaat.', 'error');
+        return;
+    }
+    if (typeof window.BarcodeDetector === 'undefined') {
+        showCashierMessage('Barcode-scanner niet ondersteund in deze browser. Gebruik handmatige scan.', 'error');
+        return;
+    }
+
+    const scannerWrap = document.getElementById('cashierScannerWrap');
+    const video = document.getElementById('cashierVideo');
+    if (!(scannerWrap instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) return;
+
+    try {
+        const detector = new window.BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39']
+        });
+
+        cashierVideoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } },
+            audio: false
+        });
+
+        video.srcObject = cashierVideoStream;
+        scannerWrap.classList.remove('hidden');
+        cashierScannerActive = true;
+
+        const scanLoop = async () => {
+            if (!cashierScannerActive) return;
+            try {
+                const barcodes = await detector.detect(video);
+                if (Array.isArray(barcodes) && barcodes.length > 0) {
+                    const rawValue = barcodes[0].rawValue || '';
+                    if (rawValue) {
+                        addBarcodeToCart(rawValue);
+                        stopCameraBarcodeScan();
+                        return;
+                    }
+                }
+            } catch {
+                // Ignore detect frame errors.
+            }
+            requestAnimationFrame(scanLoop);
+        };
+
+        requestAnimationFrame(scanLoop);
+        showCashierMessage('Camera scanner gestart. Richt op barcode.', 'info');
+    } catch (error) {
+        console.error('Camera scan error:', error);
+        showCashierMessage('Camera kon niet gestart worden.', 'error');
+        stopCameraBarcodeScan();
+    }
+}
+
+function stopCameraBarcodeScan() {
+    const scannerWrap = document.getElementById('cashierScannerWrap');
+    const video = document.getElementById('cashierVideo');
+    cashierScannerActive = false;
+
+    if (cashierVideoStream) {
+        cashierVideoStream.getTracks().forEach((track) => track.stop());
+        cashierVideoStream = null;
+    }
+    if (video && video.srcObject) {
+        video.srcObject = null;
+    }
+    if (scannerWrap) {
+        scannerWrap.classList.add('hidden');
+    }
+}
+
+function initializeProductForm() {
+    const productForm = document.getElementById('productForm');
+    if (!productForm) return;
+
+    const barcodeInput = document.getElementById('barcodeInput');
+    const artistInput = document.getElementById('artistInput');
+    const albumInput = document.getElementById('albumInput');
+    const purchasePriceInput = document.getElementById('purchasePriceInput');
+    const salePriceInput = document.getElementById('salePriceInput');
+    const stockInput = document.getElementById('stockInput');
+    const lookupBarcodeBtn = document.getElementById('lookupBarcodeBtn');
+    const saveProductBtn = document.getElementById('saveProductBtn');
+    const toggleManualMetadataBtn = document.getElementById('toggleManualMetadataBtn');
+    const productsTableBody = document.getElementById('productsTableBody');
+    const commitAddedProductsBtn = document.getElementById('commitAddedProductsBtn');
+
+    renderProductsTable();
+    renderSearchResults();
+    barcodeInput.focus();
+
+    lookupBarcodeBtn.addEventListener('click', async () => {
+        await handleBarcodeLookup();
+    });
+
+    barcodeInput.addEventListener('keydown', async (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            await handleBarcodeLookup();
+        }
+    });
+
+    barcodeInput.addEventListener('input', () => {
+        if (artistInput.value || albumInput.value) {
+            artistInput.value = '';
+            albumInput.value = '';
+            saveProductBtn.disabled = true;
+        }
+        setMetadataInputsManualMode(false);
+    });
+
+    if (toggleManualMetadataBtn) {
+        toggleManualMetadataBtn.addEventListener('click', () => {
+            const isManual = artistInput.readOnly;
+            setMetadataInputsManualMode(isManual);
+            if (isManual) {
+                saveProductBtn.disabled = false;
+                showProductFormMessage('Handmatige modus actief. Pas artiest/album aan en sla op.', 'info');
+                artistInput.focus();
+            } else {
+                showProductFormMessage('Handmatige modus uitgeschakeld.', 'info');
+            }
+        });
+    }
+
+    productForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const barcode = sanitizeBarcode(barcodeInput.value);
+        const artist = artistInput.value.trim();
+        const album = albumInput.value.trim();
+        const purchasePrice = Number.parseFloat(purchasePriceInput.value);
+        const salePrice = Number.parseFloat(salePriceInput.value);
+        const stock = Number.parseInt(stockInput.value, 10);
+
+        if (!barcode || !artist || !album) {
+            showProductFormMessage('Scan eerst een geldige barcode om artiest en album op te halen.', 'error');
+            return;
+        }
+        if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
+            showProductFormMessage('Vul een geldige inkoopprijs in.', 'error');
+            return;
+        }
+        if (!Number.isFinite(salePrice) || salePrice < 0) {
+            showProductFormMessage('Vul een geldige verkoopprijs in.', 'error');
+            return;
+        }
+        if (!Number.isInteger(stock) || stock < 0) {
+            showProductFormMessage('Vul een geldig aantal in (0 of hoger).', 'error');
+            return;
+        }
+
+        upsertSessionProduct({
+            barcode,
+            artist,
+            album,
+            purchasePrice: roundCurrency(purchasePrice),
+            salePrice: roundCurrency(salePrice),
+            stock,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+
+        setCachedMetadata(barcode, { artist, album });
+
+        renderProductsTable();
+        showProductFormMessage('Product toegevoegd aan sessie. Klik op "Voer door" om voorraad bij te werken.', 'success');
+        resetProductForm({ barcodeInput, artistInput, albumInput, purchasePriceInput, salePriceInput, stockInput, saveProductBtn });
+    });
+
+    if (productsTableBody) {
+        productsTableBody.addEventListener('input', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLInputElement)) return;
+            if (!target.classList.contains('session-stock-input')) return;
+
+            const barcode = target.getAttribute('data-barcode') || '';
+            const amount = Number.parseInt(target.value, 10);
+            if (!barcode || !Number.isInteger(amount) || amount < 0) return;
+
+            const item = sessionAddedProducts.find((p) => p.barcode === barcode);
+            if (!item) return;
+
+            item.stock = amount;
+            item.updatedAt = new Date().toISOString();
+        });
+
+        productsTableBody.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (!target.classList.contains('remove-session-btn')) return;
+
+            const barcode = target.getAttribute('data-barcode') || '';
+            if (!barcode) return;
+
+            sessionAddedProducts = sessionAddedProducts.filter((item) => item.barcode !== barcode);
+            renderProductsTable();
+            showProductFormMessage('Product verwijderd uit deze sessie.', 'info');
+        });
+    }
+
+    if (commitAddedProductsBtn) {
+        commitAddedProductsBtn.addEventListener('click', () => {
+            if (sessionAddedProducts.length === 0) {
+                showProductFormMessage('Er zijn geen sessieproducten om door te voeren.', 'error');
+                return;
+            }
+
+            const storedProducts = getStoredProducts();
+            const now = new Date().toISOString();
+
+            sessionAddedProducts.forEach((sessionProduct) => {
+                const existingIndex = storedProducts.findIndex((p) => p.barcode === sessionProduct.barcode);
+                if (existingIndex >= 0) {
+                    const existing = storedProducts[existingIndex];
+                    const existingStock = Number.isFinite(existing.stock) ? existing.stock : 0;
+                    const incomingStock = Number.isFinite(sessionProduct.stock) ? sessionProduct.stock : 0;
+                    const existingPurchasePrice = Number.isFinite(existing.purchasePrice) ? existing.purchasePrice : 0;
+                    const incomingPurchasePrice = Number.isFinite(sessionProduct.purchasePrice) ? sessionProduct.purchasePrice : 0;
+                    const totalStock = existingStock + incomingStock;
+                    const weightedPurchasePrice = totalStock > 0
+                        ? roundCurrency(((existingStock * existingPurchasePrice) + (incomingStock * incomingPurchasePrice)) / totalStock)
+                        : existingPurchasePrice;
+                    storedProducts[existingIndex] = {
+                        ...existing,
+                        artist: sessionProduct.artist,
+                        album: sessionProduct.album,
+                        purchasePrice: weightedPurchasePrice,
+                        salePrice: sessionProduct.salePrice,
+                        stock: totalStock,
+                        updatedAt: now
+                    };
+                } else {
+                    storedProducts.push({
+                        ...sessionProduct,
+                        createdAt: now,
+                        updatedAt: now
+                    });
+                }
+            });
+
+            localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(storedProducts));
+            sessionAddedProducts = [];
+            renderProductsTable();
+            renderSearchResults();
+            showProductFormMessage('Toegevoegde sessieproducten zijn doorgevoerd naar de voorraad.', 'success');
+            resetProductForm({ barcodeInput, artistInput, albumInput, purchasePriceInput, salePriceInput, stockInput, saveProductBtn });
+        });
+    }
+
+    async function handleBarcodeLookup() {
+        const barcode = sanitizeBarcode(barcodeInput.value);
+        if (barcode.length < 8) {
+            showProductFormMessage('Barcode lijkt te kort. Scan een volledige EAN/UPC-code.', 'error');
+            return;
+        }
+
+        const existingProduct = getStoredProductByBarcode(barcode);
+        if (existingProduct && Number.isFinite(existingProduct.salePrice)) {
+            salePriceInput.value = formatNumberForInput(existingProduct.salePrice);
+        }
+
+        showProductFormMessage('Barcode wordt opgezocht...', 'info');
+        lookupBarcodeBtn.disabled = true;
+        saveProductBtn.disabled = true;
+
+        try {
+            const metadata = await fetchReleaseByBarcode(barcode);
+            if (!metadata) {
+                artistInput.value = '';
+                albumInput.value = '';
+                setMetadataInputsManualMode(true);
+                saveProductBtn.disabled = false;
+                showProductFormMessage('Geen match gevonden. Vul artiest en album handmatig in.', 'info');
+                artistInput.focus();
+                return;
+            }
+
+            setMetadataInputsManualMode(false);
+            artistInput.value = metadata.artist;
+            albumInput.value = metadata.album;
+            saveProductBtn.disabled = false;
+            showProductFormMessage('Artiest en album automatisch gekoppeld.', 'success');
+            purchasePriceInput.focus();
+        } catch (error) {
+            artistInput.value = '';
+            albumInput.value = '';
+            setMetadataInputsManualMode(true);
+            saveProductBtn.disabled = false;
+            showProductFormMessage('Zoeken mislukt. Vul artiest en album handmatig in.', 'error');
+            console.error('Barcode lookup error:', error);
+        } finally {
+            lookupBarcodeBtn.disabled = false;
+        }
+    }
+}
+
+function saveStockValue(barcode, rawValue, currentQuery) {
+    const newStock = Number.parseInt(rawValue, 10);
+    if (!Number.isInteger(newStock) || newStock < 0) {
+        showSearchMessage('Vul een geldige voorraad in (0 of hoger).', 'error');
+        return;
+    }
+
+    const products = getStoredProducts();
+    const productIndex = products.findIndex((product) => product.barcode === barcode);
+    if (productIndex < 0) {
+        showSearchMessage('Product niet gevonden.', 'error');
+        return;
+    }
+
+    products[productIndex].stock = newStock;
+    products[productIndex].updatedAt = new Date().toISOString();
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    renderSearchResults(currentQuery);
+    showSearchMessage('Voorraad opgeslagen.', 'success');
+}
+
+function saveSalePriceValue(barcode, rawValue, currentQuery) {
+    const newSalePrice = Number.parseFloat(rawValue);
+    if (!Number.isFinite(newSalePrice) || newSalePrice < 0) {
+        showSearchMessage('Vul een geldige verkoopprijs in (0 of hoger).', 'error');
+        return;
+    }
+
+    const products = getStoredProducts();
+    const productIndex = products.findIndex((product) => product.barcode === barcode);
+    if (productIndex < 0) {
+        showSearchMessage('Product niet gevonden.', 'error');
+        return;
+    }
+
+    products[productIndex].salePrice = roundCurrency(newSalePrice);
+    products[productIndex].updatedAt = new Date().toISOString();
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    renderSearchResults(currentQuery);
+}
+
+function openStockEditor(barcode) {
+    const display = document.querySelector(`.stock-display-btn[data-barcode="${cssEscape(barcode)}"]`);
+    const editor = document.querySelector(`.stock-edit-group[data-barcode="${cssEscape(barcode)}"]`);
+    const input = document.querySelector(`.stock-edit-input[data-barcode="${cssEscape(barcode)}"]`);
+    if (!(display instanceof HTMLElement) || !(editor instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
+
+    display.classList.add('hidden');
+    editor.classList.remove('hidden');
+    input.focus();
+    input.select();
+}
+
+function closeStockEditor(barcode) {
+    const display = document.querySelector(`.stock-display-btn[data-barcode="${cssEscape(barcode)}"]`);
+    const editor = document.querySelector(`.stock-edit-group[data-barcode="${cssEscape(barcode)}"]`);
+    if (!(display instanceof HTMLElement) || !(editor instanceof HTMLElement)) return;
+
+    display.classList.remove('hidden');
+    editor.classList.add('hidden');
+}
+
+function initializeProductSearch() {
+    const searchInput = document.getElementById('productSearchInput');
+    const searchResultsTableBody = document.getElementById('searchResultsTableBody');
+    if (!searchInput || !searchResultsTableBody) return;
+
+    const sortButtons = document.querySelectorAll('.sort-btn');
+    searchInput.addEventListener('input', () => {
+        renderSearchResults(searchInput.value);
+    });
+
+    sortButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const sortKey = button.getAttribute('data-sort-key');
+            if (!sortKey) return;
+            setSearchSort(sortKey);
+            renderSearchResults(searchInput.value);
+        });
+    });
+
+    searchResultsTableBody.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+
+        const barcode = target.getAttribute('data-barcode') || '';
+        if (!barcode) return;
+
+        if (target.classList.contains('stock-display-btn')) {
+            openStockEditor(barcode);
+            return;
+        }
+
+        if (target.classList.contains('stock-save-btn')) {
+            const input = document.querySelector(`.stock-edit-input[data-barcode="${cssEscape(barcode)}"]`);
+            if (!(input instanceof HTMLInputElement)) return;
+            saveStockValue(barcode, input.value, searchInput.value);
+            closeStockEditor(barcode);
+            return;
+        }
+
+        if (target.classList.contains('delete-product-btn')) {
+            const products = getStoredProducts();
+            const product = products.find((item) => item.barcode === barcode);
+            if (!product) {
+                showSearchMessage('Product niet gevonden.', 'error');
+                return;
+            }
+
+            const confirmed = window.confirm(`Weet je zeker dat je "${product.artist} - ${product.album}" wilt verwijderen?`);
+            if (!confirmed) return;
+
+            const updatedProducts = products.filter((item) => item.barcode !== barcode);
+            localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(updatedProducts));
+            renderSearchResults(searchInput.value);
+            showSearchMessage('Product verwijderd uit de voorraad.', 'success');
+        }
+    });
+
+    searchResultsTableBody.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        if (!target.classList.contains('sale-price-input')) return;
+
+        const barcode = target.getAttribute('data-barcode') || '';
+        if (!barcode) return;
+        saveSalePriceValue(barcode, target.value, searchInput.value);
+    });
+
+    searchResultsTableBody.addEventListener('keydown', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+
+        if (event.key === 'Enter' && target.classList.contains('stock-edit-input')) {
+            event.preventDefault();
+            const barcode = target.getAttribute('data-barcode') || '';
+            if (!barcode) return;
+            saveStockValue(barcode, target.value, searchInput.value);
+            closeStockEditor(barcode);
+            return;
+        }
+
+        if (event.key === 'Escape' && target.classList.contains('stock-edit-input')) {
+            event.preventDefault();
+            const barcode = target.getAttribute('data-barcode') || '';
+            if (!barcode) return;
+            closeStockEditor(barcode);
+            return;
+        }
+
+        if (event.key === 'Enter' && target.classList.contains('sale-price-input')) {
+            event.preventDefault();
+            target.blur();
+        }
+    });
+
+    renderSearchResults();
+    updateSortButtons();
+}
+
+function initializeImportTab() {
+    const importFileInput = document.getElementById('importFileInput');
+    const loadImportFileBtn = document.getElementById('loadImportFileBtn');
+    const importRowsBtn = document.getElementById('importRowsBtn');
+    const previewTableBody = document.getElementById('importPreviewTableBody');
+    if (!importFileInput || !loadImportFileBtn || !importRowsBtn || !previewTableBody) return;
+
+    loadImportFileBtn.addEventListener('click', async () => {
+        const file = importFileInput.files && importFileInput.files[0];
+        if (!file) {
+            showImportMessage('Selecteer eerst een CSV of XLSX bestand.', 'error');
+            return;
+        }
+
+        try {
+            showImportMessage('Bestand wordt ingelezen...', 'info');
+            const rawRows = await readImportFile(file);
+            importPreviewRows = normalizeImportedRows(rawRows);
+            await enrichMissingMetadata(importPreviewRows);
+            renderImportPreviewTable();
+            showImportMessage(`${importPreviewRows.length} regel(s) geladen. Controleer en pas aan waar nodig.`, 'success');
+        } catch (error) {
+            console.error('Import parse error:', error);
+            importPreviewRows = [];
+            renderImportPreviewTable();
+            showImportMessage('Bestand kon niet worden ingelezen. Controleer formaat en kolomnamen.', 'error');
+        }
+    });
+
+    previewTableBody.addEventListener('input', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        const rowIndex = Number.parseInt(target.getAttribute('data-row-index') || '', 10);
+        const field = target.getAttribute('data-field') || '';
+        if (!Number.isInteger(rowIndex) || rowIndex < 0 || !field || !importPreviewRows[rowIndex]) return;
+
+        importPreviewRows[rowIndex][field] = target.value;
+    });
+
+    importRowsBtn.addEventListener('click', () => {
+        if (importPreviewRows.length === 0) {
+            showImportMessage('Er is geen importpreview om door te voeren.', 'error');
+            return;
+        }
+
+        const validationErrors = validateImportRows(importPreviewRows);
+        if (validationErrors.length > 0) {
+            showImportMessage(validationErrors[0], 'error');
+            return;
+        }
+
+        const storedProducts = getStoredProducts();
+        const now = new Date().toISOString();
+
+        importPreviewRows.forEach((row) => {
+            const barcode = sanitizeBarcode(row.barcode);
+            const incomingStock = Number.parseInt(row.stock, 10);
+            const incomingPurchasePrice = roundCurrency(Number.parseFloat(row.purchasePrice));
+            const incomingSalePrice = roundCurrency(Number.parseFloat(row.salePrice));
+            const incomingArtist = String(row.artist || '').trim();
+            const incomingAlbum = String(row.album || '').trim();
+
+            const existingIndex = storedProducts.findIndex((p) => String(p.barcode || '') === barcode);
+            if (existingIndex >= 0) {
+                const existing = storedProducts[existingIndex];
+                const existingStock = Number.isFinite(existing.stock) ? existing.stock : 0;
+                const existingPurchasePrice = Number.isFinite(existing.purchasePrice) ? existing.purchasePrice : 0;
+                const totalStock = existingStock + incomingStock;
+                const weightedPurchasePrice = totalStock > 0
+                    ? roundCurrency(((existingStock * existingPurchasePrice) + (incomingStock * incomingPurchasePrice)) / totalStock)
+                    : existingPurchasePrice;
+
+                storedProducts[existingIndex] = {
+                    ...existing,
+                    barcode,
+                    artist: incomingArtist || existing.artist,
+                    album: incomingAlbum || existing.album,
+                    stock: totalStock,
+                    purchasePrice: weightedPurchasePrice,
+                    salePrice: incomingSalePrice,
+                    updatedAt: now
+                };
+            } else {
+                storedProducts.push({
+                    barcode,
+                    artist: incomingArtist,
+                    album: incomingAlbum,
+                    stock: incomingStock,
+                    purchasePrice: incomingPurchasePrice,
+                    salePrice: incomingSalePrice,
+                    createdAt: now,
+                    updatedAt: now
+                });
+            }
+        });
+
+        localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(storedProducts));
+        importPreviewRows = [];
+        renderImportPreviewTable();
+        renderSearchResults();
+        showImportMessage('Import succesvol doorgevoerd naar voorraad.', 'success');
+    });
+
+    renderImportPreviewTable();
+}
+
+function initializeFairPlanner() {
+    const fairPlannerForm = document.getElementById('fairPlannerForm');
+    const plannedFairsTableBody = document.getElementById('plannedFairsTableBody');
+    if (!fairPlannerForm || !plannedFairsTableBody) return;
+
+    const fairNameInput = document.getElementById('fairNameInput');
+    const fairCityInput = document.getElementById('fairCityInput');
+    const fairDateInput = document.getElementById('fairDateInput');
+    const fairStartTimeInput = document.getElementById('fairStartTimeInput');
+    const fairEndTimeInput = document.getElementById('fairEndTimeInput');
+    const fairNotesInput = document.getElementById('fairNotesInput');
+
+    fairPlannerForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const name = String(fairNameInput.value || '').trim();
+        const city = String(fairCityInput.value || '').trim();
+        const date = String(fairDateInput.value || '').trim();
+        const startTime = String(fairStartTimeInput.value || '').trim();
+        const endTime = String(fairEndTimeInput.value || '').trim();
+        const notes = String(fairNotesInput.value || '').trim();
+
+        if (!name || !city || !date) {
+            showFairPlannerMessage('Vul beursnaam, locatie en datum in.', 'error');
+            return;
+        }
+
+        if (startTime && endTime && startTime > endTime) {
+            showFairPlannerMessage('Eindtijd moet na starttijd liggen.', 'error');
+            return;
+        }
+
+        const fairs = getStoredFairs();
+        fairs.push({
+            id: generateId(),
+            name,
+            city,
+            date,
+            startTime,
+            endTime,
+            notes,
+            createdAt: new Date().toISOString()
+        });
+        saveStoredFairs(fairs);
+
+        renderPlannedFairsTable();
+        renderDashboardAgenda();
+        showFairPlannerMessage('Beurs toegevoegd aan de agenda.', 'success');
+
+        fairNameInput.value = '';
+        fairCityInput.value = '';
+        fairDateInput.value = '';
+        fairStartTimeInput.value = '';
+        fairEndTimeInput.value = '';
+        fairNotesInput.value = '';
+        fairNameInput.focus();
+    });
+
+    plannedFairsTableBody.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (!target.classList.contains('remove-fair-btn')) return;
+
+        const fairId = target.getAttribute('data-fair-id') || '';
+        if (!fairId) return;
+
+        const fairs = getStoredFairs();
+        const fair = fairs.find((item) => item.id === fairId);
+        if (!fair) return;
+
+        const confirmed = window.confirm(`Verwijder beurs "${fair.name}" op ${formatDateDisplay(fair.date)}?`);
+        if (!confirmed) return;
+
+        const updatedFairs = fairs.filter((item) => item.id !== fairId);
+        saveStoredFairs(updatedFairs);
+        renderPlannedFairsTable();
+        renderDashboardAgenda();
+        showFairPlannerMessage('Beurs verwijderd uit de agenda.', 'success');
+    });
+
+    renderPlannedFairsTable();
+    renderDashboardAgenda();
+}
+
+function getStoredFairs() {
+    const raw = localStorage.getItem(FAIRS_STORAGE_KEY);
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveStoredFairs(fairs) {
+    localStorage.setItem(FAIRS_STORAGE_KEY, JSON.stringify(fairs));
+}
+
+function renderPlannedFairsTable() {
+    const tableBody = document.getElementById('plannedFairsTableBody');
+    if (!tableBody) return;
+
+    const fairs = getStoredFairs().sort((a, b) => {
+        const dateA = `${a.date || ''} ${a.startTime || '00:00'}`;
+        const dateB = `${b.date || ''} ${b.startTime || '00:00'}`;
+        return dateA.localeCompare(dateB);
+    });
+
+    if (fairs.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="6" class="empty-row">Nog geen beurzen gepland.</td></tr>';
+        return;
+    }
+
+    const rows = fairs.map((fair) => `
+        <tr>
+            <td>${escapeHtml(formatDateDisplay(fair.date))}</td>
+            <td>${escapeHtml(fair.name || '')}</td>
+            <td>${escapeHtml(fair.city || '')}</td>
+            <td>${escapeHtml(formatTimeRange(fair.startTime, fair.endTime))}</td>
+            <td>${escapeHtml(fair.notes || '-')}</td>
+            <td><button type="button" class="danger-btn remove-fair-btn" data-fair-id="${escapeHtml(fair.id)}">Verwijder</button></td>
+        </tr>
+    `).join('');
+
+    tableBody.innerHTML = rows;
+}
+
+function renderDashboardAgenda() {
+    const agendaSummary = document.getElementById('dashboardAgendaSummary');
+    const agendaList = document.getElementById('dashboardAgendaList');
+    if (!agendaSummary || !agendaList) return;
+
+    const today = getTodayDateString();
+    const fairs = getStoredFairs()
+        .filter((fair) => String(fair.date || '') >= today)
+        .sort((a, b) => {
+            const dateA = `${a.date || ''} ${a.startTime || '00:00'}`;
+            const dateB = `${b.date || ''} ${b.startTime || '00:00'}`;
+            return dateA.localeCompare(dateB);
+        });
+
+    if (fairs.length === 0) {
+        agendaSummary.textContent = 'Nog geen beurzen ingepland.';
+        agendaList.innerHTML = '<div class="empty-row">Plan je eerste beurs via "Beurzen plannen".</div>';
+        return;
+    }
+
+    agendaSummary.textContent = `${fairs.length} komende beurs${fairs.length === 1 ? '' : 'en'}`;
+    const maxItems = fairs.slice(0, 8);
+    agendaList.innerHTML = maxItems.map((fair) => `
+        <article class="agenda-item">
+            <div class="agenda-item-date">${escapeHtml(formatDateDisplay(fair.date))}</div>
+            <div class="agenda-item-content">
+                <h4>${escapeHtml(fair.name || '')}</h4>
+                <p>${escapeHtml(fair.city || '')} • ${escapeHtml(formatTimeRange(fair.startTime, fair.endTime))}</p>
+                ${fair.notes ? `<p class="agenda-note">${escapeHtml(fair.notes)}</p>` : ''}
+            </div>
+        </article>
+    `).join('');
+}
+
+function formatDateDisplay(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(`${dateString}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return dateString;
+    return date.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatTimeRange(startTime, endTime) {
+    if (startTime && endTime) return `${startTime} - ${endTime}`;
+    if (startTime) return `vanaf ${startTime}`;
+    if (endTime) return `tot ${endTime}`;
+    return 'Tijd n.t.b.';
+}
+
+function generateId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function readImportFile(file) {
+    const extension = (file.name.split('.').pop() || '').toLowerCase();
+
+    if (extension === 'csv') {
+        const text = await file.text();
+        return parseCsvRows(text);
+    }
+
+    if (extension === 'xlsx' || extension === 'xls') {
+        if (typeof window.XLSX === 'undefined') {
+            throw new Error('XLSX parser niet beschikbaar');
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = window.XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[firstSheetName];
+        return window.XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+    }
+
+    throw new Error('Onbekend bestandsformaat');
+}
+
+function parseCsvRows(text) {
+    const rows = [];
+    const firstLine = String(text || '').split(/\r?\n/).find((line) => line.trim() !== '') || '';
+    const semicolonCount = (firstLine.match(/;/g) || []).length;
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const delimiter = semicolonCount >= commaCount ? ';' : ',';
+    let current = '';
+    let row = [];
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+        const char = text[i];
+        const next = text[i + 1];
+
+        if (char === '"') {
+            if (inQuotes && next === '"') {
+                current += '"';
+                i += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+
+        if (!inQuotes && char === delimiter) {
+            row.push(current);
+            current = '';
+            continue;
+        }
+
+        if (!inQuotes && (char === '\n' || char === '\r')) {
+            if (char === '\r' && next === '\n') i += 1;
+            row.push(current);
+            current = '';
+            if (row.some((cell) => String(cell).trim() !== '')) {
+                rows.push(row);
+            }
+            row = [];
+            continue;
+        }
+
+        current += char;
+    }
+
+    row.push(current);
+    if (row.some((cell) => String(cell).trim() !== '')) rows.push(row);
+    if (rows.length === 0) return [];
+
+    const headers = rows[0].map((header) => normalizeImportHeader(header));
+    return rows.slice(1).map((cells) => {
+        const item = {};
+        headers.forEach((header, index) => {
+            item[header] = cells[index] !== undefined ? cells[index] : '';
+        });
+        return item;
+    });
+}
+
+function normalizeImportedRows(rawRows) {
+    return rawRows
+        .map((raw) => {
+            const row = mapRawImportRow(raw);
+            return {
+                barcode: sanitizeBarcode(row.barcode),
+                artist: String(row.artist || '').trim(),
+                album: String(row.album || '').trim(),
+                purchasePrice: normalizeNumericText(row.purchasePrice),
+                salePrice: normalizeNumericText(row.salePrice),
+                stock: normalizeIntegerText(row.stock)
+            };
+        })
+        .filter((row) => row.barcode !== '' || row.artist !== '' || row.album !== '');
+}
+
+function mapRawImportRow(raw) {
+    const normalizedKeys = Object.keys(raw || {}).reduce((acc, key) => {
+        acc[normalizeImportHeader(key)] = raw[key];
+        return acc;
+    }, {});
+
+    return {
+        barcode: getFirstValue(normalizedKeys, ['barcode', 'ean', 'upc']),
+        artist: getFirstValue(normalizedKeys, ['artiest', 'artist']),
+        album: getFirstValue(normalizedKeys, ['album', 'albumnaam', 'title']),
+        purchasePrice: getFirstValue(normalizedKeys, ['inkoopprijs', 'purchaseprice', 'inkoop']),
+        salePrice: getFirstValue(normalizedKeys, ['verkoopprijs', 'saleprice', 'verkoop']),
+        stock: getFirstValue(normalizedKeys, ['voorraad', 'stock', 'hoeveelheid', 'aantal'])
+    };
+}
+
+async function enrichMissingMetadata(rows) {
+    for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (!row.barcode) continue;
+        if (row.artist && row.album) continue;
+
+        try {
+            const metadata = await fetchReleaseByBarcode(row.barcode);
+            if (!metadata) continue;
+            if (!row.artist) row.artist = metadata.artist || '';
+            if (!row.album) row.album = metadata.album || '';
+        } catch {
+            // Keep row editable by user if lookup fails.
+        }
+    }
+}
+
+function validateImportRows(rows) {
+    const errors = [];
+    rows.forEach((row, index) => {
+        const rowNo = index + 1;
+        const barcode = sanitizeBarcode(row.barcode);
+        const artist = String(row.artist || '').trim();
+        const album = String(row.album || '').trim();
+        const purchasePrice = Number.parseFloat(row.purchasePrice);
+        const salePrice = Number.parseFloat(row.salePrice);
+        const stock = Number.parseInt(row.stock, 10);
+
+        if (!barcode) errors.push(`Rij ${rowNo}: barcode ontbreekt.`);
+        if (!artist) errors.push(`Rij ${rowNo}: artiest ontbreekt.`);
+        if (!album) errors.push(`Rij ${rowNo}: album ontbreekt.`);
+        if (!Number.isFinite(purchasePrice) || purchasePrice < 0) errors.push(`Rij ${rowNo}: ongeldige inkoopprijs.`);
+        if (!Number.isFinite(salePrice) || salePrice < 0) errors.push(`Rij ${rowNo}: ongeldige verkoopprijs.`);
+        if (!Number.isInteger(stock) || stock < 0) errors.push(`Rij ${rowNo}: ongeldige voorraad.`);
+    });
+    return errors;
+}
+
+function renderImportPreviewTable() {
+    const tableBody = document.getElementById('importPreviewTableBody');
+    if (!tableBody) return;
+
+    if (importPreviewRows.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="6" class="empty-row">Nog geen importbestand geladen.</td></tr>';
+        return;
+    }
+
+    tableBody.innerHTML = importPreviewRows.map((row, index) => `
+        <tr>
+            <td><input type="text" value="${escapeHtml(row.barcode || '')}" data-row-index="${index}" data-field="barcode"></td>
+            <td><input type="text" value="${escapeHtml(row.artist || '')}" data-row-index="${index}" data-field="artist"></td>
+            <td><input type="text" value="${escapeHtml(row.album || '')}" data-row-index="${index}" data-field="album"></td>
+            <td><input type="number" min="0" step="0.01" value="${escapeHtml(row.purchasePrice || '')}" data-row-index="${index}" data-field="purchasePrice"></td>
+            <td><input type="number" min="0" step="0.01" value="${escapeHtml(row.salePrice || '')}" data-row-index="${index}" data-field="salePrice"></td>
+            <td><input type="number" min="0" step="1" value="${escapeHtml(row.stock || '')}" data-row-index="${index}" data-field="stock"></td>
+        </tr>
+    `).join('');
+}
+
+function showImportMessage(message, type) {
+    const messageElement = document.getElementById('importMessage');
+    if (!messageElement) return;
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
+function normalizeImportHeader(header) {
+    return String(header || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^\w]/g, '');
+}
+
+function getFirstValue(object, keys) {
+    for (let i = 0; i < keys.length; i += 1) {
+        const key = keys[i];
+        if (Object.prototype.hasOwnProperty.call(object, key)) {
+            return object[key];
+        }
+    }
+    return '';
+}
+
+function normalizeNumericText(value) {
+    const text = String(value ?? '')
+        .trim()
+        .replace(/[^\d,.\-]/g, '')
+        .replace(',', '.');
+    return text;
+}
+
+function normalizeIntegerText(value) {
+    const text = String(value ?? '').trim().replace(',', '.');
+    if (text === '') return '';
+    const parsed = Number.parseInt(text, 10);
+    return Number.isFinite(parsed) ? String(parsed) : text;
+}
+
+async function fetchReleaseByBarcode(barcode) {
+    const candidates = getBarcodeCandidates(barcode);
+    const metadataCache = getMetadataCache();
+
+    for (const candidate of candidates) {
+        const cached = metadataCache[candidate];
+        if (cached && cached.artist && cached.album) {
+            return {
+                artist: cached.artist,
+                album: cached.album,
+                source: 'cache'
+            };
+        }
+    }
+
+    for (const candidate of candidates) {
+        const url = `https://musicbrainz.org/ws/2/release/?query=barcode:${encodeURIComponent(candidate)}&fmt=json&limit=25`;
+        const response = await fetch(url, {
+            headers: {
+                Accept: 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`MusicBrainz error (${response.status})`);
+        }
+
+        const data = await response.json();
+        const releases = Array.isArray(data.releases) ? data.releases : [];
+        if (releases.length === 0) continue;
+
+        const best = pickBestMusicBrainzRelease(releases);
+        if (best) {
+            setCachedMetadata(candidate, { artist: best.artist, album: best.album });
+            return {
+                artist: best.artist,
+                album: best.album,
+                source: 'musicbrainz'
+            };
+        }
+    }
+
+    return null;
+}
+
+function pickBestMusicBrainzRelease(releases) {
+    let bestItem = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    releases.forEach((release) => {
+        const artist = normalizeArtistFromCredit(release['artist-credit']);
+        const album = release && release.title ? String(release.title).trim() : '';
+        if (!artist || !album) return;
+
+        const apiScore = Number.parseInt(release.score || release['ext:score'] || '0', 10);
+        const formats = getReleaseFormats(release);
+        const hasVinyl = formats.some((f) => /vinyl|lp|12"|10"|7"/i.test(f));
+        const hasOnlyCd = formats.length > 0 && formats.every((f) => /cd/i.test(f));
+        const status = String(release.status || '').toLowerCase();
+
+        let weightedScore = Number.isFinite(apiScore) ? apiScore : 0;
+        if (hasVinyl) weightedScore += 35;
+        if (hasOnlyCd) weightedScore -= 20;
+        if (status === 'official') weightedScore += 8;
+
+        if (weightedScore > bestScore) {
+            bestScore = weightedScore;
+            bestItem = { artist, album };
+        }
+    });
+
+    return bestItem;
+}
+
+function getReleaseFormats(release) {
+    if (!release || !Array.isArray(release.media)) return [];
+    return release.media
+        .map((m) => (m && m.format ? String(m.format).trim() : ''))
+        .filter(Boolean);
+}
+
+function normalizeArtistFromCredit(artistCredit) {
+    const credits = Array.isArray(artistCredit) ? artistCredit : [];
+    return credits
+        .map((credit) => {
+            if (!credit) return '';
+            if (typeof credit === 'string') return credit;
+            if (credit.name) return credit.name;
+            if (credit.artist && credit.artist.name) return credit.artist.name;
+            return '';
+        })
+        .join('')
+        .trim();
+}
+
+function getStoredProducts() {
+    const raw = localStorage.getItem(PRODUCTS_STORAGE_KEY);
+    if (!raw) return [];
+
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function getStoredProductByBarcode(barcode) {
+    const candidates = getBarcodeCandidates(barcode);
+    const products = getStoredProducts();
+    return products.find((product) => candidates.includes(String(product.barcode || ''))) || null;
+}
+
+function renderProductsTable() {
+    const tableBody = document.getElementById('productsTableBody');
+    if (!tableBody) return;
+
+    if (sessionAddedProducts.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="7" class="empty-row">Nog geen producten toegevoegd in deze sessie.</td></tr>';
+        return;
+    }
+
+    const rows = sessionAddedProducts
+        .slice()
+        .sort((a, b) => (a.artist || '').localeCompare(b.artist || '', 'nl'))
+        .map((product) => `
+            <tr>
+                <td>${escapeHtml(product.barcode)}</td>
+                <td>${escapeHtml(product.artist)}</td>
+                <td>${escapeHtml(product.album)}</td>
+                <td>EUR ${formatCurrency(product.purchasePrice)}</td>
+                <td>EUR ${formatCurrency(product.salePrice)}</td>
+                <td><input type="number" min="0" step="1" value="${Number.isFinite(product.stock) ? product.stock : 0}" class="stock-add-input session-stock-input" data-barcode="${escapeHtml(product.barcode)}"></td>
+                <td><button type="button" class="danger-btn remove-session-btn" data-barcode="${escapeHtml(product.barcode)}">X</button></td>
+            </tr>
+        `)
+        .join('');
+
+    tableBody.innerHTML = rows;
+}
+
+function renderSearchResults(query = '') {
+    const tableBody = document.getElementById('searchResultsTableBody');
+    if (!tableBody) return;
+
+    const products = getStoredProducts();
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const filteredProducts = normalizedQuery
+        ? products.filter((product) => matchesProductQuery(product, normalizedQuery))
+        : products.slice();
+
+    if (filteredProducts.length === 0) {
+        const message = products.length === 0
+            ? 'Nog geen producten beschikbaar.'
+            : 'Geen producten gevonden voor deze zoekopdracht.';
+        tableBody.innerHTML = `<tr><td colspan="6" class="empty-row">${message}</td></tr>`;
+        return;
+    }
+
+    const rows = sortProductsForSearch(filteredProducts)
+        .map((product) => `
+            <tr>
+                <td>${escapeHtml(product.barcode)}</td>
+                <td>${escapeHtml(product.artist)}</td>
+                <td>${escapeHtml(product.album)}</td>
+                <td>
+                    <div class="stock-inline-editor">
+                        <button type="button" class="stock-display-btn" data-barcode="${escapeHtml(product.barcode)}">${Number.isFinite(product.stock) ? product.stock : 0}</button>
+                        <div class="stock-edit-group hidden" data-barcode="${escapeHtml(product.barcode)}">
+                            <input type="number" min="0" step="1" value="${Number.isFinite(product.stock) ? product.stock : 0}" class="stock-edit-input" data-barcode="${escapeHtml(product.barcode)}">
+                            <button type="button" class="success-btn stock-save-btn" data-barcode="${escapeHtml(product.barcode)}">âœ“</button>
+                        </div>
+                    </div>
+                </td>
+                <td><input type="number" min="0" step="0.01" value="${formatNumberForInput(product.salePrice)}" class="sale-price-input" data-barcode="${escapeHtml(product.barcode)}"></td>
+                <td>
+                    <button type="button" class="danger-btn delete-product-btn" data-barcode="${escapeHtml(product.barcode)}">Verwijder</button>
+                </td>
+            </tr>
+        `)
+        .join('');
+
+    tableBody.innerHTML = rows;
+    updateSortButtons();
+}
+
+function setSearchSort(nextKey) {
+    if (SEARCH_SORT_STATE.key === nextKey) {
+        SEARCH_SORT_STATE.direction = SEARCH_SORT_STATE.direction === 'asc' ? 'desc' : 'asc';
+        return;
+    }
+    SEARCH_SORT_STATE.key = nextKey;
+    SEARCH_SORT_STATE.direction = nextKey === 'stock' || nextKey === 'salePrice' ? 'desc' : 'asc';
+}
+
+function sortProductsForSearch(products) {
+    const directionFactor = SEARCH_SORT_STATE.direction === 'asc' ? 1 : -1;
+    return products.slice().sort((a, b) => {
+        if (SEARCH_SORT_STATE.key === 'stock' || SEARCH_SORT_STATE.key === 'salePrice') {
+            const numericKey = SEARCH_SORT_STATE.key;
+            const valueA = Number.isFinite(a[numericKey]) ? a[numericKey] : 0;
+            const valueB = Number.isFinite(b[numericKey]) ? b[numericKey] : 0;
+            return (valueA - valueB) * directionFactor;
+        }
+
+        const valueA = String(a[SEARCH_SORT_STATE.key] || '').toLowerCase();
+        const valueB = String(b[SEARCH_SORT_STATE.key] || '').toLowerCase();
+        return valueA.localeCompare(valueB, 'nl') * directionFactor;
+    });
+}
+
+function updateSortButtons() {
+    const sortButtons = document.querySelectorAll('.sort-btn');
+    sortButtons.forEach((button) => {
+        const key = button.getAttribute('data-sort-key');
+        const baseLabel = button.textContent ? button.textContent.split(' ')[0] : '';
+        if (!key || !baseLabel) return;
+
+        button.classList.remove('active');
+        button.textContent = baseLabel;
+
+        if (key === SEARCH_SORT_STATE.key) {
+            button.classList.add('active');
+            const marker = SEARCH_SORT_STATE.direction === 'asc' ? 'ASC' : 'DESC';
+            button.textContent = `${baseLabel} ${marker}`;
+        }
+    });
+}
+
+function upsertSessionProduct(productRecord) {
+    const existingIndex = sessionAddedProducts.findIndex((item) => item.barcode === productRecord.barcode);
+    if (existingIndex >= 0) {
+        sessionAddedProducts[existingIndex] = {
+            ...sessionAddedProducts[existingIndex],
+            ...productRecord,
+            updatedAt: new Date().toISOString()
+        };
+    } else {
+        sessionAddedProducts.push(productRecord);
+    }
+}
+
+function resetProductForm(elements) {
+    elements.barcodeInput.value = '';
+    elements.artistInput.value = '';
+    elements.albumInput.value = '';
+    elements.purchasePriceInput.value = '';
+    elements.salePriceInput.value = '';
+    elements.stockInput.value = '';
+    elements.saveProductBtn.disabled = true;
+    setMetadataInputsManualMode(false);
+    elements.barcodeInput.focus();
+}
+
+function getBarcodeCandidates(barcode) {
+    const cleaned = sanitizeBarcode(barcode);
+    const candidates = [cleaned];
+
+    if (cleaned.length === 13 && cleaned.startsWith('0')) {
+        candidates.push(cleaned.slice(1));
+    }
+    if (cleaned.length === 12) {
+        candidates.push(`0${cleaned}`);
+    }
+
+    return [...new Set(candidates)];
+}
+
+function getMetadataCache() {
+    const raw = localStorage.getItem(BARCODE_METADATA_CACHE_KEY);
+    if (!raw) return {};
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function setCachedMetadata(barcode, metadata) {
+    const candidates = getBarcodeCandidates(barcode);
+    const cache = getMetadataCache();
+    const payload = {
+        artist: String(metadata.artist || '').trim(),
+        album: String(metadata.album || '').trim(),
+        updatedAt: new Date().toISOString()
+    };
+    if (!payload.artist || !payload.album) return;
+
+    candidates.forEach((candidate) => {
+        cache[candidate] = payload;
+    });
+
+    localStorage.setItem(BARCODE_METADATA_CACHE_KEY, JSON.stringify(cache));
+}
+
+function setMetadataInputsManualMode(enabled) {
+    const artistInput = document.getElementById('artistInput');
+    const albumInput = document.getElementById('albumInput');
+    if (!artistInput || !albumInput) return;
+
+    artistInput.readOnly = !enabled;
+    albumInput.readOnly = !enabled;
+}
+
+function matchesProductQuery(product, normalizedQuery) {
+    const barcode = String(product.barcode || '').toLowerCase();
+    const artist = String(product.artist || '').toLowerCase();
+    const album = String(product.album || '').toLowerCase();
+    return barcode.includes(normalizedQuery) || artist.includes(normalizedQuery) || album.includes(normalizedQuery);
+}
+
+function sanitizeBarcode(value) {
+    return String(value || '').replace(/[^0-9Xx]/g, '').toUpperCase();
+}
+
+function formatCurrency(value) {
+    const amount = Number.parseFloat(value);
+    if (!Number.isFinite(amount)) return '0,00';
+    return amount.toFixed(2).replace('.', ',');
+}
+
+function formatNumberForInput(value) {
+    const amount = Number.parseFloat(value);
+    if (!Number.isFinite(amount)) return '0.00';
+    return amount.toFixed(2);
+}
+
+function getTodayDateString() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function roundCurrency(value) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function showProductFormMessage(message, type) {
+    const messageElement = document.getElementById('productFormMessage');
+    if (!messageElement) return;
+
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
+function showSearchMessage(message, type) {
+    const messageElement = document.getElementById('searchMessage');
+    if (!messageElement) return;
+
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
+function showFairPlannerMessage(message, type) {
+    const messageElement = document.getElementById('fairPlannerMessage');
+    if (!messageElement) return;
+
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
+function showCashierMessage(message, type) {
+    const messageElement = document.getElementById('cashierMessage');
+    if (!messageElement) return;
+
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
+function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+        return window.CSS.escape(value);
+    }
+    return String(value).replace(/"/g, '\\"');
+}
+
 function logout() {
-    // Confirm logout
     if (confirm('Weet je zeker dat je wil uitloggen?')) {
-        // Clear session
+        stopCameraBarcodeScan();
         localStorage.removeItem(SESSION_STORAGE_KEY);
-        
-        // Redirect to login
         window.location.href = 'index.html';
     }
 }
 
-// Prevent going back to dashboard without authentication
-window.addEventListener('pageshow', function(event) {
-    if (event.persisted) {
-        // Page was restored from cache
-        if (document.getElementById('logoutBtn')) {
-            checkAuthentication();
-        }
+window.addEventListener('pageshow', function (event) {
+    if (event.persisted && document.getElementById('logoutBtn')) {
+        if (isDashboardPage) checkAuthentication('admin');
+        if (isCashierPage) checkAuthentication('cashier');
     }
 });
+
+
+
+
+
