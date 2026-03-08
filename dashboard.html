@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Deus Digitus Beurs</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <nav class="navbar">
+            <div class="navbar-content">
+                <div class="navbar-brand">
+                    <h1>Deus Digitus</h1>
+                    <p>Beurs Beheersysteem</p>
+                </div>
+                <div class="navbar-user">
+                    <span id="userName">Admin</span>
+                    <button id="logoutBtn" class="logout-btn">Uitloggen</button>
+                </div>
+            </div>
+        </nav>
+        
+        <div class="dashboard-content">
+            <div class="dashboard-header">
+                <h2>Welkom op het Dashboard</h2>
+                <p>Goedendag, <span id="dashboardUserName">Admin</span>!</p>
+            </div>
+            
+            <div class="dashboard-grid">
+                <div class="dashboard-card">
+                    <div class="card-icon">📊</div>
+                    <h3>Overzicht</h3>
+                    <p>Bekijk de statistieken en gegevens van de beurs.</p>
+                </div>
+                
+                <div class="dashboard-card">
+                    <div class="card-icon">👥</div>
+                    <h3>Deelnemers</h3>
+                    <p>Beheer de deelnemers van de beurs.</p>
+                </div>
+                
+                <div class="dashboard-card">
+                    <div class="card-icon">⚙️</div>
+                    <h3>Instellingen</h3>
+                    <p>Configureer de systeeminstellingen.</p>
+                </div>
+                
+                <div class="dashboard-card">
+                    <div class="card-icon">📋</div>
+                    <h3>Rapporten</h3>
+                    <p>Genereer en bekijk rapporten.</p>
+                </div>
+            </div>
+            
+            <div class="dashboard-info">
+                <h3>Systeem Informatie</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>Actieve Sessie:</label>
+                        <span id="sessionTime">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Gebruiker:</label>
+                        <span id="sessionUser">Admin</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Status:</label>
+                        <span class="status-active">Actief</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

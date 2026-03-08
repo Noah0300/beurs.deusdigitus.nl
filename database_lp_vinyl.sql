@@ -1,0 +1,19 @@
+CREATE DATABASE IF NOT EXISTS lp_vinyl_beheer
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE lp_vinyl_beheer;
+
+CREATE TABLE IF NOT EXISTS vinyl_producten (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  barcode VARCHAR(32) NOT NULL UNIQUE,
+  artiest VARCHAR(255) NOT NULL,
+  albumnaam VARCHAR(255) NOT NULL,
+  inkoopprijs DECIMAL(10,2) NOT NULL,
+  verkoopprijs DECIMAL(10,2) NOT NULL,
+  voorraad INT UNSIGNED NOT NULL DEFAULT 0,
+  aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CHECK (inkoopprijs >= 0),
+  CHECK (verkoopprijs >= 0)
+);
