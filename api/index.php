@@ -1,14 +1,18 @@
 <?php
-declare(strict_types=1);
 
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path' => '/',
-    'domain' => '',
-    'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
-    'httponly' => true,
-    'samesite' => 'Lax'
-]);
+if (PHP_VERSION_ID >= 70300) {
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'domain' => '',
+        'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+        'httponly' => true,
+        'samesite' => 'Lax'
+    ]);
+} else {
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    session_set_cookie_params(0, '/; samesite=Lax', '', $secure, true);
+}
 session_start();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -23,19 +27,22 @@ const MAIN_ADMIN_PASSWORD = 'James123';
 const DEFAULT_CASHIER_USERNAME = 'cashier';
 const DEFAULT_CASHIER_PASSWORD = 'cashier123';
 
-function json_response(int $status, array $payload): void {
+function json_response($status, $payload) {
     http_response_code($status);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-function get_db(): PDO {
+function get_db() {
     $dataDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
     if (!is_dir($dataDir) && !mkdir($dataDir, 0775, true) && !is_dir($dataDir)) {
         json_response(500, ['message' => 'Datamap kon niet worden aangemaakt.']);
     }
 
     $dbPath = $dataDir . DIRECTORY_SEPARATOR . 'app.sqlite';
+    if (!extension_loaded('pdo_sqlite')) {
+        json_response(500, ['message' => 'Server mist pdo_sqlite extensie. Activeer SQLite in STRATO PHP instellingen.']);
+    }
     $pdo = new PDO('sqlite:' . $dbPath);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec(
@@ -89,7 +96,7 @@ function get_db(): PDO {
     return $pdo;
 }
 
-function seed_defaults(PDO $pdo): void {
+function seed_defaults($pdo) {
     $stmt = $pdo->prepare('SELECT username, is_main_admin FROM users WHERE username = :username LIMIT 1');
     $stmt->execute([':username' => MAIN_ADMIN_USERNAME]);
     $admin = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -124,35 +131,35 @@ function seed_defaults(PDO $pdo): void {
     }
 }
 
-function get_json_body(): array {
+function get_json_body() {
     $raw = file_get_contents('php://input');
     if ($raw === false || $raw === '') return [];
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
 }
 
-function current_user(): ?array {
+function current_user() {
     if (empty($_SESSION['user']) || !is_array($_SESSION['user'])) return null;
     return $_SESSION['user'];
 }
 
-function require_user(): array {
+function require_user() {
     $user = current_user();
     if (!$user) json_response(401, ['message' => 'Niet ingelogd.']);
     return $user;
 }
 
-function require_main_admin(): array {
+function require_main_admin() {
     $user = require_user();
     if (empty($user['isMainAdmin'])) json_response(403, ['message' => 'Alleen hoofd-admin heeft toegang.']);
     return $user;
 }
 
-function normalize_username(string $username): string {
+function normalize_username($username) {
     return strtolower(trim($username));
 }
 
-function parse_path(): array {
+function parse_path() {
     $uriPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
     $scriptDir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/api/index.php')), '/');
     $path = str_replace('\\', '/', $uriPath);
@@ -164,7 +171,7 @@ function parse_path(): array {
     return $segments;
 }
 
-function get_discogs_token(): string {
+function get_discogs_token() {
     if (defined('DISCOGS_PERSONAL_TOKEN')) {
         return trim((string)DISCOGS_PERSONAL_TOKEN);
     }
@@ -172,7 +179,7 @@ function get_discogs_token(): string {
     return $fromEnv !== false ? trim((string)$fromEnv) : '';
 }
 
-function http_get_json(string $url, array $headers): ?array {
+function http_get_json($url, $headers) {
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
@@ -201,7 +208,7 @@ function http_get_json(string $url, array $headers): ?array {
     return is_array($decoded) ? $decoded : null;
 }
 
-function parse_discogs_title(string $title): array {
+function parse_discogs_title($title) {
     $parts = preg_split('/\s+-\s+/', $title, 2);
     if (is_array($parts) && count($parts) === 2) {
         return ['artist' => trim((string)$parts[0]), 'album' => trim((string)$parts[1])];
@@ -209,7 +216,7 @@ function parse_discogs_title(string $title): array {
     return ['artist' => '', 'album' => trim($title)];
 }
 
-function fetch_discogs_metadata(string $barcode): ?array {
+function fetch_discogs_metadata($barcode) {
     $token = get_discogs_token();
     if ($token === '') return null;
 
@@ -391,7 +398,7 @@ try {
                 ]);
             }
             $pdo->commit();
-        } catch (Throwable $e) {
+        } catch (Exception $e) {
             $pdo->rollBack();
             throw $e;
         }
@@ -470,7 +477,7 @@ try {
                 ]);
             }
             $pdo->commit();
-        } catch (Throwable $e) {
+        } catch (Exception $e) {
             $pdo->rollBack();
             throw $e;
         }
@@ -555,7 +562,7 @@ try {
                 ]);
             }
             $pdo->commit();
-        } catch (Throwable $e) {
+        } catch (Exception $e) {
             $pdo->rollBack();
             throw $e;
         }
@@ -615,6 +622,6 @@ try {
     }
 
     json_response(404, ['message' => 'Endpoint niet gevonden.']);
-} catch (Throwable $e) {
+} catch (Exception $e) {
     json_response(500, ['message' => 'Serverfout.', 'error' => $e->getMessage()]);
 }
