@@ -8,6 +8,8 @@ const SESSION_STORAGE_KEY = 'userSession';
 const PRODUCTS_STORAGE_KEY = 'vinylProducts';
 const BARCODE_METADATA_CACHE_KEY = 'barcodeMetadataCache';
 const FAIRS_STORAGE_KEY = 'plannedFairs';
+const BERTUS_API_KEY_STORAGE = 'bertusApiKey';
+const BERTUS_ACCOUNT_ID_STORAGE = 'bertusAccountId';
 let sessionAddedProducts = [];
 let importPreviewRows = [];
 let cashierCart = [];
@@ -1408,7 +1410,101 @@ async function fetchReleaseByBarcode(barcode) {
         }
     }
 
+    for (const candidate of candidates) {
+        const bertusMetadata = await fetchBertusMetadata(candidate);
+        if (bertusMetadata) {
+            setCachedMetadata(candidate, { artist: bertusMetadata.artist, album: bertusMetadata.album });
+            return {
+                artist: bertusMetadata.artist,
+                album: bertusMetadata.album,
+                source: 'bertus'
+            };
+        }
+    }
+
     return null;
+}
+
+async function fetchBertusMetadata(barcode) {
+    const bertusConfig = getBertusConfig();
+    if (!bertusConfig.enabled) return null;
+
+    const url = `https://myapi.bertus.com/prod/api/v1/accounts/${encodeURIComponent(bertusConfig.accountId)}/articles/${encodeURIComponent(barcode)}`;
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Ocp-Apim-Subscription-Key': bertusConfig.apiKey
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) return null;
+            throw new Error(`Bertus error (${response.status})`);
+        }
+
+        const payload = await response.json();
+        return extractBertusArtistAlbum(payload);
+    } catch (error) {
+        console.warn('Bertus metadata lookup failed:', error);
+        return null;
+    }
+}
+
+function getBertusConfig() {
+    const apiKey = String(localStorage.getItem(BERTUS_API_KEY_STORAGE) || '').trim();
+    const accountId = String(localStorage.getItem(BERTUS_ACCOUNT_ID_STORAGE) || '').trim();
+    return {
+        enabled: apiKey !== '' && accountId !== '',
+        apiKey,
+        accountId
+    };
+}
+
+function extractBertusArtistAlbum(payload) {
+    const candidates = flattenObjects(payload);
+    for (let i = 0; i < candidates.length; i += 1) {
+        const item = candidates[i];
+        if (!item || typeof item !== 'object') continue;
+
+        const artist = pickFirstStringValue(item, ['Artist', 'artist', 'Performer', 'MainArtist', 'ArtistName']);
+        const album = pickFirstStringValue(item, ['Title', 'title', 'Album', 'AlbumName', 'Description', 'ArticleDescription', 'Name']);
+        if (artist && album) {
+            return { artist, album };
+        }
+    }
+
+    return null;
+}
+
+function flattenObjects(input) {
+    const result = [];
+
+    function walk(node) {
+        if (Array.isArray(node)) {
+            node.forEach((item) => walk(item));
+            return;
+        }
+        if (!node || typeof node !== 'object') return;
+        result.push(node);
+        Object.keys(node).forEach((key) => {
+            walk(node[key]);
+        });
+    }
+
+    walk(input);
+    return result;
+}
+
+function pickFirstStringValue(object, keys) {
+    for (let i = 0; i < keys.length; i += 1) {
+        const value = object[keys[i]];
+        if (typeof value === 'string' && value.trim() !== '') {
+            return value.trim();
+        }
+    }
+    return '';
 }
 
 function pickBestMusicBrainzRelease(releases) {
