@@ -1,4 +1,4 @@
-const CACHE_NAME = 'beurs-kassa-v1';
+const CACHE_NAME = 'beurs-kassa-v2';
 const APP_SHELL = [
     './',
     './index.html',
@@ -43,7 +43,7 @@ self.addEventListener('fetch', (event) => {
                 })
                 .catch(async () => {
                     const cached = await caches.match(request);
-                    return cached || caches.match('./index.html');
+                    return cached || caches.match('./');
                 })
         );
         return;

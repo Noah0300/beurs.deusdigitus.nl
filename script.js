@@ -14,6 +14,7 @@ const FAIRS_STORAGE_KEY = 'plannedFairs';
 const TRANSACTIONS_STORAGE_KEY = 'salesTransactions';
 const BERTUS_API_KEY_STORAGE = 'bertusApiKey';
 const BERTUS_ACCOUNT_ID_STORAGE = 'bertusAccountId';
+const LIVE_DATA_CLEANUP_KEY = 'liveDataCleanupV1';
 let sessionAddedProducts = [];
 let importPreviewRows = [];
 let cashierCart = [];
@@ -41,7 +42,55 @@ const SEARCH_SORT_STATE = {
     direction: 'asc'
 };
 
+function usePrettyRoutes() {
+    const host = String(window.location.hostname || '').toLowerCase();
+    if (host.endsWith('github.io') || host === 'localhost' || host === '127.0.0.1') {
+        return false;
+    }
+    return true;
+}
+
+function routePath(name) {
+    const pretty = {
+        login: './',
+        dashboard: './dashboard',
+        cashier: './cashier'
+    };
+    const fallback = {
+        login: './index.html',
+        dashboard: './dashboard.html',
+        cashier: './cashier.html'
+    };
+    return usePrettyRoutes() ? pretty[name] : fallback[name];
+}
+
+function goToRoute(name) {
+    window.location.href = routePath(name);
+}
+
+function cleanupLiveDataOnce() {
+    try {
+        if (localStorage.getItem(LIVE_DATA_CLEANUP_KEY) === 'done') return;
+        const keysToClear = [
+            SESSION_STORAGE_KEY,
+            USERS_STORAGE_KEY,
+            PRODUCTS_STORAGE_KEY,
+            BARCODE_METADATA_CACHE_KEY,
+            FAIRS_STORAGE_KEY,
+            TRANSACTIONS_STORAGE_KEY,
+            BERTUS_API_KEY_STORAGE,
+            BERTUS_ACCOUNT_ID_STORAGE
+        ];
+        keysToClear.forEach((key) => localStorage.removeItem(key));
+        localStorage.setItem(LIVE_DATA_CLEANUP_KEY, 'done');
+    } catch {
+        // ignore storage cleanup errors in restricted/private modes
+    }
+}
+
 // ==================== LOGIN PAGE ====================
+
+cleanupLiveDataOnce();
 
 if (document.getElementById('loginForm')) {
     const loginForm = document.getElementById('loginForm');
@@ -63,7 +112,7 @@ if (document.getElementById('loginForm')) {
                 isAuthenticated: true
             };
             localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
-            window.location.href = matchedUser.role === 'admin' ? 'dashboard.html' : 'cashier.html';
+            goToRoute(matchedUser.role === 'admin' ? 'dashboard' : 'cashier');
         } else {
             errorMessage.textContent = 'Gebruikersnaam of wachtwoord is onjuist.';
             errorMessage.classList.add('show');
@@ -119,7 +168,7 @@ function registerOfflineSupport() {
 function checkAuthentication(requiredRole = null) {
     const sessionData = localStorage.getItem(SESSION_STORAGE_KEY);
     if (!sessionData) {
-        window.location.href = 'index.html';
+        goToRoute('login');
         return;
     }
 
@@ -128,7 +177,7 @@ function checkAuthentication(requiredRole = null) {
     const user = users.find((item) => item.username === session.username);
     if (!user) {
         localStorage.removeItem(SESSION_STORAGE_KEY);
-        window.location.href = 'index.html';
+        goToRoute('login');
         return;
     }
     if (session.role !== user.role) {
@@ -136,7 +185,7 @@ function checkAuthentication(requiredRole = null) {
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
     }
     if (requiredRole && session.role !== requiredRole) {
-        window.location.href = session.role === 'admin' ? 'dashboard.html' : 'cashier.html';
+        goToRoute(session.role === 'admin' ? 'dashboard' : 'cashier');
         return;
     }
     const loginTime = new Date(session.loginTime);
@@ -145,7 +194,7 @@ function checkAuthentication(requiredRole = null) {
 
     if (hoursDiff > 24) {
         localStorage.removeItem(SESSION_STORAGE_KEY);
-        window.location.href = 'index.html';
+        goToRoute('login');
         return;
     }
 
@@ -550,7 +599,7 @@ async function probeCashierConnectivity() {
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3500);
-        await fetch(`./index.html?connectivity=${Date.now()}`, {
+        await fetch(`./?connectivity=${Date.now()}`, {
             method: 'GET',
             cache: 'no-store',
             signal: controller.signal
@@ -2826,7 +2875,7 @@ function logout() {
             cashierConnectivityTimer = null;
         }
         localStorage.removeItem(SESSION_STORAGE_KEY);
-        window.location.href = 'index.html';
+        goToRoute('login');
     }
 }
 
