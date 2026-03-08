@@ -86,6 +86,7 @@ if (isDashboardPage) {
     initializeTopNavigation();
     initializeDashboard();
     initializeTransactionsPage();
+    initializeAssignTransactionsPage();
     initializePastFairsPage();
     initializeUserManagement();
     initializeProductForm();
@@ -191,9 +192,6 @@ function initializeDashboard() {
 
 function initializeTransactionsPage() {
     const tableBody = document.getElementById('transactionsTableBody');
-    const assignBtn = document.getElementById('assignTransactionsBtn');
-    const fairSelect = document.getElementById('transactionFairSelect');
-    const selectAllCheckbox = document.getElementById('transactionSelectAll');
 
     if (tableBody) {
         tableBody.addEventListener('click', (event) => {
@@ -206,6 +204,13 @@ function initializeTransactionsPage() {
             cancelTransaction(transactionId);
         });
     }
+    renderTransactionsTable();
+}
+
+function initializeAssignTransactionsPage() {
+    const tableBody = document.getElementById('assignTransactionsTableBody');
+    const assignBtn = document.getElementById('assignSelectedTransactionsBtn');
+    const selectAllCheckbox = document.getElementById('assignTransactionSelectAll');
 
     if (assignBtn) {
         assignBtn.addEventListener('click', () => {
@@ -216,27 +221,23 @@ function initializeTransactionsPage() {
     if (selectAllCheckbox && tableBody) {
         selectAllCheckbox.addEventListener('change', () => {
             const checked = selectAllCheckbox.checked;
-            const rowCheckboxes = tableBody.querySelectorAll('.transaction-select-checkbox');
+            const rowCheckboxes = tableBody.querySelectorAll('.assign-transaction-checkbox');
             rowCheckboxes.forEach((checkbox) => {
-                if (checkbox instanceof HTMLInputElement) {
-                    checkbox.checked = checked;
-                }
+                if (checkbox instanceof HTMLInputElement) checkbox.checked = checked;
             });
         });
 
         tableBody.addEventListener('change', (event) => {
             const target = event.target;
             if (!(target instanceof HTMLInputElement)) return;
-            if (!target.classList.contains('transaction-select-checkbox')) return;
-            syncTransactionSelectAllState();
+            if (!target.classList.contains('assign-transaction-checkbox')) return;
+            syncAssignTransactionSelectAllState();
         });
     }
 
-    if (fairSelect) {
-        populateTransactionFairSelect();
-    }
-
-    renderTransactionsTable();
+    populateAssignTransactionFairSelect();
+    renderAssignTransactionsTable();
+    updateAssignTransactionsTabVisibility();
 }
 
 function initializePastFairsPage() {
@@ -413,8 +414,12 @@ function showDashboardPage(pageId) {
     }
 
     if (pageId === 'pageTransactions') {
-        populateTransactionFairSelect();
         renderTransactionsTable();
+    }
+
+    if (pageId === 'pageAssignTransactions') {
+        populateAssignTransactionFairSelect();
+        renderAssignTransactionsTable();
     }
 
     if (pageId === 'pagePastFairs') {
@@ -1520,7 +1525,8 @@ function initializeFairPlanner() {
 
         renderPlannedFairsTable();
         renderDashboardAgenda();
-        populateTransactionFairSelect();
+        populateAssignTransactionFairSelect();
+        updateAssignTransactionsTabVisibility();
         showFairPlannerMessage('Beurs toegevoegd aan de agenda.', 'success');
 
         fairNameInput.value = '';
@@ -1552,8 +1558,10 @@ function initializeFairPlanner() {
         unlinkFairFromTransactions(fairId);
         renderPlannedFairsTable();
         renderDashboardAgenda();
-        populateTransactionFairSelect();
+        populateAssignTransactionFairSelect();
+        updateAssignTransactionsTabVisibility();
         renderTransactionsTable();
+        renderAssignTransactionsTable();
         renderPastFairsPage();
         showFairPlannerMessage('Beurs verwijderd uit de agenda.', 'success');
     });
@@ -1592,6 +1600,8 @@ function appendTransaction(transaction) {
     const transactions = getStoredTransactions();
     transactions.push(transaction);
     saveStoredTransactions(transactions);
+    updateAssignTransactionsTabVisibility();
+    renderAssignTransactionsTable();
 }
 
 function cancelTransaction(transactionId) {
@@ -1636,6 +1646,8 @@ function cancelTransaction(transactionId) {
     localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
     saveStoredTransactions(transactions);
     renderTransactionsTable();
+    renderAssignTransactionsTable();
+    updateAssignTransactionsTabVisibility();
     renderDashboardOverview();
     renderPastFairsPage();
     showTransactionsMessage('Transactie geannuleerd en voorraad hersteld.', 'success');
@@ -1652,14 +1664,12 @@ function renderTransactionsTable() {
         .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
     if (transactions.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="8" class="empty-row">Nog geen transacties.</td></tr>';
-        syncTransactionSelectAllState();
+        tableBody.innerHTML = '<tr><td colspan="7" class="empty-row">Nog geen transacties.</td></tr>';
         return;
     }
 
     tableBody.innerHTML = transactions.map((transaction) => `
         <tr>
-            <td><input type="checkbox" class="transaction-select-checkbox" data-transaction-id="${escapeHtml(transaction.id)}" aria-label="Selecteer transactie"></td>
             <td>${escapeHtml(formatDateTimeDisplay(transaction.createdAt))}</td>
             <td>${escapeHtml(transaction.cashier || '')}</td>
             <td>${Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0}</td>
@@ -1673,7 +1683,6 @@ function renderTransactionsTable() {
             </td>
         </tr>
     `).join('');
-    syncTransactionSelectAllState();
 }
 
 function showTransactionsMessage(message, type) {
@@ -1687,8 +1696,17 @@ function showTransactionsMessage(message, type) {
     if (type === 'info') messageElement.classList.add('info');
 }
 
-function populateTransactionFairSelect() {
-    const fairSelect = document.getElementById('transactionFairSelect');
+function formatTransactionFairNames(transaction, fairMap) {
+    const fairIds = Array.isArray(transaction.fairIds) ? transaction.fairIds : [];
+    if (fairIds.length === 0) return '-';
+    const labels = fairIds
+        .map((id) => fairMap.get(id))
+        .filter((label) => typeof label === 'string' && label.length > 0);
+    return labels.length > 0 ? labels.join(', ') : '-';
+}
+
+function populateAssignTransactionFairSelect() {
+    const fairSelect = document.getElementById('assignTransactionFairSelect');
     if (!(fairSelect instanceof HTMLSelectElement)) return;
 
     const fairs = getStoredFairs()
@@ -1701,19 +1719,44 @@ function populateTransactionFairSelect() {
     fairSelect.innerHTML = options.join('');
 }
 
-function formatTransactionFairNames(transaction, fairMap) {
-    const fairIds = Array.isArray(transaction.fairIds) ? transaction.fairIds : [];
-    if (fairIds.length === 0) return '-';
-    const labels = fairIds
-        .map((id) => fairMap.get(id))
-        .filter((label) => typeof label === 'string' && label.length > 0);
-    return labels.length > 0 ? labels.join(', ') : '-';
+function getUnassignedTransactions() {
+    return getStoredTransactions()
+        .filter((transaction) => {
+            if (transaction.canceled) return false;
+            const fairIds = Array.isArray(transaction.fairIds) ? transaction.fairIds : [];
+            return fairIds.length === 0;
+        })
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 }
 
-function getSelectedTransactionIds() {
-    const tableBody = document.getElementById('transactionsTableBody');
+function renderAssignTransactionsTable() {
+    const tableBody = document.getElementById('assignTransactionsTableBody');
+    if (!tableBody) return;
+
+    const transactions = getUnassignedTransactions();
+    if (transactions.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="6" class="empty-row">Geen open transacties om toe te wijzen.</td></tr>';
+        syncAssignTransactionSelectAllState();
+        return;
+    }
+
+    tableBody.innerHTML = transactions.map((transaction) => `
+        <tr>
+            <td><input type="checkbox" class="assign-transaction-checkbox" data-transaction-id="${escapeHtml(transaction.id)}" aria-label="Selecteer transactie"></td>
+            <td>${escapeHtml(formatDateTimeDisplay(transaction.createdAt))}</td>
+            <td>${escapeHtml(transaction.cashier || '')}</td>
+            <td>${Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0}</td>
+            <td>EUR ${formatCurrency(transaction.totalAmount)}</td>
+            <td>${transaction.canceled ? 'Geannuleerd' : 'Actief'}</td>
+        </tr>
+    `).join('');
+    syncAssignTransactionSelectAllState();
+}
+
+function getSelectedTransactionIdsForAssignment() {
+    const tableBody = document.getElementById('assignTransactionsTableBody');
     if (!tableBody) return [];
-    const selected = tableBody.querySelectorAll('.transaction-select-checkbox:checked');
+    const selected = tableBody.querySelectorAll('.assign-transaction-checkbox:checked');
     return Array.from(selected).map((checkbox) => {
         if (!(checkbox instanceof HTMLInputElement)) return '';
         return checkbox.getAttribute('data-transaction-id') || '';
@@ -1721,18 +1764,18 @@ function getSelectedTransactionIds() {
 }
 
 function assignSelectedTransactionsToFair() {
-    const fairSelect = document.getElementById('transactionFairSelect');
+    const fairSelect = document.getElementById('assignTransactionFairSelect');
     if (!(fairSelect instanceof HTMLSelectElement)) return;
 
     const fairId = String(fairSelect.value || '').trim();
     if (!fairId) {
-        showTransactionsMessage('Kies eerst een beurs.', 'error');
+        showAssignTransactionsMessage('Kies eerst een beurs.', 'error');
         return;
     }
 
-    const selectedIds = getSelectedTransactionIds();
+    const selectedIds = getSelectedTransactionIdsForAssignment();
     if (selectedIds.length === 0) {
-        showTransactionsMessage('Selecteer minimaal 1 transactie.', 'error');
+        showAssignTransactionsMessage('Selecteer minimaal 1 transactie.', 'error');
         return;
     }
 
@@ -1746,16 +1789,18 @@ function assignSelectedTransactionsToFair() {
 
     saveStoredTransactions(updatedTransactions);
     renderTransactionsTable();
+    renderAssignTransactionsTable();
     renderPastFairsPage();
-    showTransactionsMessage(`${updatedCount} transactie${updatedCount === 1 ? '' : 's'} toegewezen aan beurs.`, 'success');
+    updateAssignTransactionsTabVisibility();
+    showAssignTransactionsMessage(`${updatedCount} transactie${updatedCount === 1 ? '' : 's'} toegewezen aan beurs.`, 'success');
 }
 
-function syncTransactionSelectAllState() {
-    const tableBody = document.getElementById('transactionsTableBody');
-    const selectAllCheckbox = document.getElementById('transactionSelectAll');
+function syncAssignTransactionSelectAllState() {
+    const tableBody = document.getElementById('assignTransactionsTableBody');
+    const selectAllCheckbox = document.getElementById('assignTransactionSelectAll');
     if (!tableBody || !(selectAllCheckbox instanceof HTMLInputElement)) return;
 
-    const checkboxes = Array.from(tableBody.querySelectorAll('.transaction-select-checkbox')).filter((item) => item instanceof HTMLInputElement);
+    const checkboxes = Array.from(tableBody.querySelectorAll('.assign-transaction-checkbox')).filter((item) => item instanceof HTMLInputElement);
     if (checkboxes.length === 0) {
         selectAllCheckbox.checked = false;
         selectAllCheckbox.indeterminate = false;
@@ -1765,6 +1810,31 @@ function syncTransactionSelectAllState() {
     const checkedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
     selectAllCheckbox.checked = checkedCount === checkboxes.length;
     selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+}
+
+function showAssignTransactionsMessage(message, type) {
+    const messageElement = document.getElementById('assignTransactionsMessage');
+    if (!messageElement) return;
+
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
+function updateAssignTransactionsTabVisibility() {
+    const navButton = document.getElementById('assignTransactionsNavBtn');
+    const page = document.getElementById('pageAssignTransactions');
+    if (!navButton || !page) return;
+
+    const hasUnassigned = getUnassignedTransactions().length > 0;
+    navButton.classList.toggle('hidden', !hasUnassigned);
+    page.classList.toggle('hidden', !hasUnassigned);
+
+    if (!hasUnassigned && page.classList.contains('active')) {
+        showDashboardPage('pageTransactions');
+    }
 }
 
 function renderPastFairsPage() {

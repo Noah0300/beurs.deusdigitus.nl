@@ -25,6 +25,7 @@
             <nav class="section-nav" aria-label="Pagina navigatie">
                 <button type="button" class="section-nav-btn active" data-page-target="pageDashboard">Dashboard</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageTransactions">Transacties</button>
+                <button type="button" id="assignTransactionsNavBtn" class="section-nav-btn hidden" data-page-target="pageAssignTransactions">Transacties toewijzen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pagePastFairs">Voorgaande beurzen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageAddStock">Voorraad toevoegen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageUpdateStock">Beurzen plannen</button>
@@ -123,24 +124,12 @@
                         <p>Overzicht van alle verkopen via de kassa.</p>
                     </div>
                     <div id="transactionsMessage" class="form-message" aria-live="polite"></div>
-                    <div class="transaction-assign-bar">
-                        <div class="form-group">
-                            <label for="transactionFairSelect">Beurs</label>
-                            <select id="transactionFairSelect">
-                                <option value="">Selecteer beurs...</option>
-                            </select>
-                        </div>
-                        <div class="form-actions end">
-                            <button type="button" id="assignTransactionsBtn" class="primary-btn">Toewijzen aan geselecteerde</button>
-                        </div>
-                    </div>
 
                     <div class="products-list">
                         <div class="table-wrapper search-results-wrapper">
                             <table>
                                 <thead>
                                     <tr>
-                                        <th><input type="checkbox" id="transactionSelectAll" aria-label="Selecteer alle transacties"></th>
                                         <th>Tijdstip</th>
                                         <th>Kassier</th>
                                         <th>Items</th>
@@ -152,7 +141,50 @@
                                 </thead>
                                 <tbody id="transactionsTableBody">
                                     <tr>
-                                        <td colspan="8" class="empty-row">Nog geen transacties.</td>
+                                        <td colspan="7" class="empty-row">Nog geen transacties.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <section id="pageAssignTransactions" class="dashboard-page">
+                <section class="inventory-section" aria-labelledby="assignTransactionsTitle">
+                    <div class="section-header">
+                        <h3 id="assignTransactionsTitle">Transacties toewijzen</h3>
+                        <p>Selecteer transacties en koppel ze aan een beurs.</p>
+                    </div>
+                    <div id="assignTransactionsMessage" class="form-message" aria-live="polite"></div>
+                    <div class="transaction-assign-bar">
+                        <div class="form-group">
+                            <label for="assignTransactionFairSelect">Beurs</label>
+                            <select id="assignTransactionFairSelect">
+                                <option value="">Selecteer beurs...</option>
+                            </select>
+                        </div>
+                        <div class="form-actions end">
+                            <button type="button" id="assignSelectedTransactionsBtn" class="primary-btn">Toewijzen aan geselecteerde</button>
+                        </div>
+                    </div>
+
+                    <div class="products-list">
+                        <div class="table-wrapper search-results-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th><input type="checkbox" id="assignTransactionSelectAll" aria-label="Selecteer alle transacties"></th>
+                                        <th>Tijdstip</th>
+                                        <th>Kassier</th>
+                                        <th>Items</th>
+                                        <th>Totaal</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="assignTransactionsTableBody">
+                                    <tr>
+                                        <td colspan="6" class="empty-row">Geen open transacties om toe te wijzen.</td>
                                     </tr>
                                 </tbody>
                             </table>

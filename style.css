@@ -632,8 +632,8 @@ body {
     margin-bottom: 0;
 }
 
-#transactionSelectAll,
-.transaction-select-checkbox {
+#assignTransactionSelectAll,
+.assign-transaction-checkbox {
     width: 18px;
     height: 18px;
     cursor: pointer;
