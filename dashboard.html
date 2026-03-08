@@ -24,6 +24,7 @@
         <div class="dashboard-content">
             <nav class="section-nav" aria-label="Pagina navigatie">
                 <button type="button" class="section-nav-btn active" data-page-target="pageDashboard">Dashboard</button>
+                <button type="button" class="section-nav-btn" data-page-target="pageTransactions">Transacties</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageAddStock">Voorraad toevoegen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageUpdateStock">Beurzen plannen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageImport">Importeren</button>
@@ -130,6 +131,35 @@
                         </div>
                     </div>
                 </div>
+            </section>
+
+            <section id="pageTransactions" class="dashboard-page">
+                <section class="inventory-section" aria-labelledby="transactionsTitle">
+                    <div class="section-header">
+                        <h3 id="transactionsTitle">Transactiehistorie</h3>
+                        <p>Overzicht van alle verkopen via de kassa.</p>
+                    </div>
+
+                    <div class="products-list">
+                        <div class="table-wrapper search-results-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Tijdstip</th>
+                                        <th>Kassier</th>
+                                        <th>Items</th>
+                                        <th>Totaal</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactionsTableBody">
+                                    <tr>
+                                        <td colspan="4" class="empty-row">Nog geen transacties.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
             </section>
 
             <section id="pageAddStock" class="dashboard-page">

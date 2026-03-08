@@ -9,6 +9,7 @@ const USERS_STORAGE_KEY = 'appUsers';
 const PRODUCTS_STORAGE_KEY = 'vinylProducts';
 const BARCODE_METADATA_CACHE_KEY = 'barcodeMetadataCache';
 const FAIRS_STORAGE_KEY = 'plannedFairs';
+const TRANSACTIONS_STORAGE_KEY = 'salesTransactions';
 const BERTUS_API_KEY_STORAGE = 'bertusApiKey';
 const BERTUS_ACCOUNT_ID_STORAGE = 'bertusAccountId';
 let sessionAddedProducts = [];
@@ -81,6 +82,7 @@ if (isDashboardPage) {
     checkAuthentication('admin');
     initializeTopNavigation();
     initializeDashboard();
+    initializeTransactionsPage();
     initializeUserManagement();
     initializeProductForm();
     initializeFairPlanner();
@@ -171,6 +173,10 @@ function updateSessionTime(loginTime) {
 function initializeDashboard() {
     renderDashboardAgenda();
     renderDashboardOverview();
+}
+
+function initializeTransactionsPage() {
+    renderTransactionsTable();
 }
 
 function initializeUserManagement() {
@@ -340,6 +346,10 @@ function showDashboardPage(pageId) {
         const searchInput = document.getElementById('productSearchInput');
         renderSearchResults(searchInput ? searchInput.value : '');
         if (searchInput) searchInput.focus();
+    }
+
+    if (pageId === 'pageTransactions') {
+        renderTransactionsTable();
     }
 
     if (pageId === 'pageImport') {
@@ -563,6 +573,24 @@ function processCheckout() {
     }
 
     const now = new Date().toISOString();
+    let totalAmount = 0;
+    let totalItems = 0;
+
+    const soldItems = cashierCart.map((cartItem) => {
+        const unitPrice = Number.isFinite(cartItem.salePrice) ? cartItem.salePrice : 0;
+        const qty = Number.isFinite(cartItem.quantity) ? cartItem.quantity : 0;
+        totalAmount += unitPrice * qty;
+        totalItems += qty;
+        return {
+            barcode: cartItem.barcode,
+            artist: cartItem.artist || '',
+            album: cartItem.album || '',
+            quantity: qty,
+            salePrice: roundCurrency(unitPrice),
+            subtotal: roundCurrency(unitPrice * qty)
+        };
+    });
+
     cashierCart.forEach((cartItem) => {
         const index = products.findIndex((item) => item.barcode === cartItem.barcode);
         products[index].stock -= cartItem.quantity;
@@ -570,6 +598,14 @@ function processCheckout() {
     });
 
     localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    appendTransaction({
+        id: generateId(),
+        createdAt: now,
+        cashier: getCurrentUserName(),
+        totalItems,
+        totalAmount: roundCurrency(totalAmount),
+        items: soldItems
+    });
     cashierCart = [];
     renderCashierCart();
     showCashierMessage('Afrekenen voltooid. Voorraad is bijgewerkt.', 'success');
@@ -1375,6 +1411,50 @@ function getStoredFairs() {
     }
 }
 
+function getStoredTransactions() {
+    const raw = localStorage.getItem(TRANSACTIONS_STORAGE_KEY);
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveStoredTransactions(transactions) {
+    localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(transactions));
+}
+
+function appendTransaction(transaction) {
+    const transactions = getStoredTransactions();
+    transactions.push(transaction);
+    saveStoredTransactions(transactions);
+}
+
+function renderTransactionsTable() {
+    const tableBody = document.getElementById('transactionsTableBody');
+    if (!tableBody) return;
+
+    const transactions = getStoredTransactions()
+        .slice()
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
+    if (transactions.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="4" class="empty-row">Nog geen transacties.</td></tr>';
+        return;
+    }
+
+    tableBody.innerHTML = transactions.map((transaction) => `
+        <tr>
+            <td>${escapeHtml(formatDateTimeDisplay(transaction.createdAt))}</td>
+            <td>${escapeHtml(transaction.cashier || '')}</td>
+            <td>${Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0}</td>
+            <td>EUR ${formatCurrency(transaction.totalAmount)}</td>
+        </tr>
+    `).join('');
+}
+
 function saveStoredFairs(fairs) {
     localStorage.setItem(FAIRS_STORAGE_KEY, JSON.stringify(fairs));
 }
@@ -1479,6 +1559,19 @@ function formatDateDisplay(dateString) {
     const date = new Date(`${dateString}T00:00:00`);
     if (Number.isNaN(date.getTime())) return dateString;
     return date.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatDateTimeDisplay(isoString) {
+    if (!isoString) return '-';
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return String(isoString);
+    return date.toLocaleString('nl-NL', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
 }
 
 function formatTimeRange(startTime, endTime) {
@@ -1961,6 +2054,11 @@ function getCurrentSession() {
     } catch {
         return null;
     }
+}
+
+function getCurrentUserName() {
+    const session = getCurrentSession();
+    return session && session.username ? String(session.username) : '';
 }
 
 function isCurrentMainAdmin(session) {
