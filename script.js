@@ -86,7 +86,7 @@ if (isDashboardPage) {
     initializeTopNavigation();
     initializeDashboard();
     initializeTransactionsPage();
-    initializeClosingReport();
+    initializePastFairsPage();
     initializeUserManagement();
     initializeProductForm();
     initializeFairPlanner();
@@ -187,7 +187,6 @@ function updateSessionTime(loginTime) {
 function initializeDashboard() {
     renderDashboardAgenda();
     renderDashboardOverview();
-    renderClosingReportResult(null);
 }
 
 function initializeTransactionsPage() {
@@ -202,19 +201,23 @@ function initializeTransactionsPage() {
             if (!transactionId) return;
             cancelTransaction(transactionId);
         });
+
+        tableBody.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLInputElement)) return;
+            if (!target.classList.contains('transaction-fair-checkbox')) return;
+
+            const transactionId = target.getAttribute('data-transaction-id') || '';
+            const fairId = target.getAttribute('data-fair-id') || '';
+            if (!transactionId || !fairId) return;
+            toggleTransactionFairLink(transactionId, fairId, target.checked);
+        });
     }
     renderTransactionsTable();
 }
 
-function initializeClosingReport() {
-    const button = document.getElementById('generateClosingReportBtn');
-    if (!button) return;
-
-    button.addEventListener('click', () => {
-        const report = buildClosingReportForDate(getTodayDateString());
-        renderClosingReportResult(report);
-        showClosingReportMessage('Dagafsluiting gegenereerd voor vandaag.', 'success');
-    });
+function initializePastFairsPage() {
+    renderPastFairsPage();
 }
 
 function initializeUserManagement() {
@@ -388,6 +391,10 @@ function showDashboardPage(pageId) {
 
     if (pageId === 'pageTransactions') {
         renderTransactionsTable();
+    }
+
+    if (pageId === 'pagePastFairs') {
+        renderPastFairsPage();
     }
 
     if (pageId === 'pageImport') {
@@ -1517,8 +1524,11 @@ function initializeFairPlanner() {
 
         const updatedFairs = fairs.filter((item) => item.id !== fairId);
         saveStoredFairs(updatedFairs);
+        unlinkFairFromTransactions(fairId);
         renderPlannedFairsTable();
         renderDashboardAgenda();
+        renderTransactionsTable();
+        renderPastFairsPage();
         showFairPlannerMessage('Beurs verwijderd uit de agenda.', 'success');
     });
 
@@ -1601,19 +1611,21 @@ function cancelTransaction(transactionId) {
     saveStoredTransactions(transactions);
     renderTransactionsTable();
     renderDashboardOverview();
+    renderPastFairsPage();
     showTransactionsMessage('Transactie geannuleerd en voorraad hersteld.', 'success');
 }
 
 function renderTransactionsTable() {
     const tableBody = document.getElementById('transactionsTableBody');
     if (!tableBody) return;
+    const fairs = getStoredFairs().slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
 
     const transactions = getStoredTransactions()
         .slice()
         .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
     if (transactions.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="6" class="empty-row">Nog geen transacties.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="7" class="empty-row">Nog geen transacties.</td></tr>';
         return;
     }
 
@@ -1623,6 +1635,7 @@ function renderTransactionsTable() {
             <td>${escapeHtml(transaction.cashier || '')}</td>
             <td>${Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0}</td>
             <td>EUR ${formatCurrency(transaction.totalAmount)}</td>
+            <td>${buildTransactionFairCheckboxes(transaction, fairs)}</td>
             <td>${transaction.canceled ? 'Geannuleerd' : 'Actief'}</td>
             <td>
                 ${transaction.canceled
@@ -1634,7 +1647,7 @@ function renderTransactionsTable() {
 }
 
 function showTransactionsMessage(message, type) {
-    const messageElement = document.getElementById('closingReportMessage');
+    const messageElement = document.getElementById('transactionsMessage');
     if (!messageElement) return;
 
     messageElement.textContent = message;
@@ -1644,60 +1657,123 @@ function showTransactionsMessage(message, type) {
     if (type === 'info') messageElement.classList.add('info');
 }
 
-function buildClosingReportForDate(dateString) {
-    const transactions = getStoredTransactions().filter((transaction) => {
-        if (!transaction.createdAt) return false;
-        return transaction.createdAt.slice(0, 10) === dateString;
-    });
+function buildTransactionFairCheckboxes(transaction, fairs) {
+    if (!Array.isArray(fairs) || fairs.length === 0) {
+        return '<span class="empty-row">Geen beurzen</span>';
+    }
 
-    const totalTransactions = transactions.length;
-    const canceledTransactions = transactions.filter((transaction) => transaction.canceled).length;
-    const activeTransactions = totalTransactions - canceledTransactions;
-    const totalItemsSold = transactions
-        .filter((transaction) => !transaction.canceled)
-        .reduce((sum, transaction) => sum + (Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0), 0);
-    const grossRevenue = transactions
-        .filter((transaction) => !transaction.canceled)
-        .reduce((sum, transaction) => sum + (Number.isFinite(transaction.totalAmount) ? transaction.totalAmount : 0), 0);
-
-    return {
-        date: dateString,
-        totalTransactions,
-        activeTransactions,
-        canceledTransactions,
-        totalItemsSold,
-        grossRevenue: roundCurrency(grossRevenue)
-    };
+    const linkedFairIds = Array.isArray(transaction.fairIds) ? transaction.fairIds : [];
+    return fairs.map((fair) => {
+        const checked = linkedFairIds.includes(fair.id) ? 'checked' : '';
+        const label = `${formatDateDisplay(fair.date)} - ${fair.name || ''}`;
+        return `
+            <label class="transaction-fair-link">
+                <input type="checkbox" class="transaction-fair-checkbox" data-transaction-id="${escapeHtml(transaction.id)}" data-fair-id="${escapeHtml(fair.id)}" ${checked}>
+                <span>${escapeHtml(label)}</span>
+            </label>
+        `;
+    }).join('');
 }
 
-function renderClosingReportResult(report) {
-    const container = document.getElementById('closingReportResult');
+function toggleTransactionFairLink(transactionId, fairId, shouldLink) {
+    const transactions = getStoredTransactions();
+    const index = transactions.findIndex((transaction) => transaction.id === transactionId);
+    if (index < 0) return;
+
+    const current = transactions[index];
+    const fairIds = Array.isArray(current.fairIds) ? [...current.fairIds] : [];
+    const exists = fairIds.includes(fairId);
+
+    if (shouldLink && !exists) {
+        fairIds.push(fairId);
+    }
+    if (!shouldLink && exists) {
+        const updated = fairIds.filter((id) => id !== fairId);
+        fairIds.length = 0;
+        updated.forEach((id) => fairIds.push(id));
+    }
+
+    transactions[index] = { ...current, fairIds };
+    saveStoredTransactions(transactions);
+    renderPastFairsPage();
+}
+
+function renderPastFairsPage() {
+    const container = document.getElementById('pastFairsList');
     if (!container) return;
 
-    if (!report) {
-        container.innerHTML = '<div class="empty-row">Nog geen dagafsluiting gegenereerd.</div>';
+    const fairs = getStoredFairs().slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+    if (fairs.length === 0) {
+        container.innerHTML = '<div class="empty-row">Nog geen beurzen beschikbaar.</div>';
         return;
     }
 
-    container.innerHTML = `
-        <article class="agenda-item">
-            <div class="agenda-item-date">${escapeHtml(formatDateDisplay(report.date))}</div>
-            <div class="agenda-item-content">
-                <h4>Dagafsluiting rapport</h4>
-                <p>Transacties: ${report.totalTransactions} (actief: ${report.activeTransactions}, geannuleerd: ${report.canceledTransactions})</p>
-                <p>Verkochte items: ${report.totalItemsSold}</p>
-                <p>Omzet (bruto): EUR ${formatCurrency(report.grossRevenue)}</p>
-            </div>
-        </article>
-    `;
+    const transactions = getStoredTransactions();
+    container.innerHTML = fairs.map((fair) => {
+        const linkedTransactions = transactions.filter((transaction) => {
+            const fairIds = Array.isArray(transaction.fairIds) ? transaction.fairIds : [];
+            return fairIds.includes(fair.id);
+        });
+        const activeTransactions = linkedTransactions.filter((transaction) => !transaction.canceled);
+        const canceledTransactions = linkedTransactions.length - activeTransactions.length;
+        const itemsSold = activeTransactions.reduce((sum, transaction) => sum + (Number.isFinite(transaction.totalItems) ? transaction.totalItems : 0), 0);
+        const turnover = activeTransactions.reduce((sum, transaction) => sum + (Number.isFinite(transaction.totalAmount) ? transaction.totalAmount : 0), 0);
+        const topRecords = buildTopRecordsForTransactions(activeTransactions);
+
+        const topListHtml = topRecords.length === 0
+            ? '<p class="empty-row">Nog geen gekoppelde verkoopregels.</p>'
+            : topRecords.slice(0, 5).map((item) => `<p>${escapeHtml(item.label)} • ${item.quantity}x • EUR ${formatCurrency(item.revenue)}</p>`).join('');
+
+        return `
+            <article class="agenda-item">
+                <div class="agenda-item-date">${escapeHtml(formatDateDisplay(fair.date))}</div>
+                <div class="agenda-item-content">
+                    <h4>${escapeHtml(fair.name || '')}</h4>
+                    <p>${escapeHtml(fair.city || '')} • ${escapeHtml(formatTimeRange(fair.startTime, fair.endTime))}</p>
+                    <p>Transacties: ${activeTransactions.length} actief (${canceledTransactions} geannuleerd)</p>
+                    <p>Verkochte items: ${itemsSold} • Omzet: EUR ${formatCurrency(turnover)}</p>
+                    <p><strong>Top platen:</strong></p>
+                    ${topListHtml}
+                </div>
+            </article>
+        `;
+    }).join('');
 }
 
-function showClosingReportMessage(message, type) {
-    showTransactionsMessage(message, type);
+function buildTopRecordsForTransactions(transactions) {
+    const recordMap = new Map();
+
+    transactions.forEach((transaction) => {
+        const items = Array.isArray(transaction.items) ? transaction.items : [];
+        items.forEach((item) => {
+            const key = `${item.barcode || ''}`;
+            const label = `${item.artist || '-'} - ${item.album || '-'} (${item.barcode || '-'})`;
+            const current = recordMap.get(key) || { label, quantity: 0, revenue: 0 };
+            const qty = Number.isFinite(item.quantity) ? item.quantity : 0;
+            const revenue = Number.isFinite(item.subtotal) ? item.subtotal : 0;
+            current.quantity += qty;
+            current.revenue += revenue;
+            recordMap.set(key, current);
+        });
+    });
+
+    return Array.from(recordMap.values()).sort((a, b) => {
+        if (b.quantity !== a.quantity) return b.quantity - a.quantity;
+        return b.revenue - a.revenue;
+    });
 }
 
 function saveStoredFairs(fairs) {
     localStorage.setItem(FAIRS_STORAGE_KEY, JSON.stringify(fairs));
+}
+
+function unlinkFairFromTransactions(fairId) {
+    const transactions = getStoredTransactions();
+    const updatedTransactions = transactions.map((transaction) => {
+        const fairIds = Array.isArray(transaction.fairIds) ? transaction.fairIds.filter((id) => id !== fairId) : [];
+        return { ...transaction, fairIds };
+    });
+    saveStoredTransactions(updatedTransactions);
 }
 
 function renderPlannedFairsTable() {

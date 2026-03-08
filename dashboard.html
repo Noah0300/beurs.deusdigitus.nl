@@ -25,6 +25,7 @@
             <nav class="section-nav" aria-label="Pagina navigatie">
                 <button type="button" class="section-nav-btn active" data-page-target="pageDashboard">Dashboard</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageTransactions">Transacties</button>
+                <button type="button" class="section-nav-btn" data-page-target="pagePastFairs">Voorgaande beurzen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageAddStock">Voorraad toevoegen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageUpdateStock">Beurzen plannen</button>
                 <button type="button" class="section-nav-btn" data-page-target="pageImport">Importeren</button>
@@ -63,15 +64,6 @@
                             <span id="overviewUpcomingFairs">0</span>
                         </div>
                     </div>
-                </div>
-
-                <div class="dashboard-info">
-                    <h3>Dagafsluiting</h3>
-                    <div class="form-actions end">
-                        <button type="button" id="generateClosingReportBtn" class="primary-btn">Genereer dagafsluiting</button>
-                    </div>
-                    <div id="closingReportMessage" class="form-message" aria-live="polite"></div>
-                    <div id="closingReportResult" class="agenda-list"></div>
                 </div>
 
                 <div id="userManagementSection" class="dashboard-info">
@@ -130,6 +122,7 @@
                         <h3 id="transactionsTitle">Transactiehistorie</h3>
                         <p>Overzicht van alle verkopen via de kassa.</p>
                     </div>
+                    <div id="transactionsMessage" class="form-message" aria-live="polite"></div>
 
                     <div class="products-list">
                         <div class="table-wrapper search-results-wrapper">
@@ -140,17 +133,30 @@
                                         <th>Kassier</th>
                                         <th>Items</th>
                                         <th>Totaal</th>
+                                        <th>Koppel aan beurs</th>
                                         <th>Status</th>
                                         <th>Actie</th>
                                     </tr>
                                 </thead>
                                 <tbody id="transactionsTableBody">
                                     <tr>
-                                        <td colspan="6" class="empty-row">Nog geen transacties.</td>
+                                        <td colspan="7" class="empty-row">Nog geen transacties.</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </section>
+            </section>
+
+            <section id="pagePastFairs" class="dashboard-page">
+                <section class="inventory-section" aria-labelledby="pastFairsTitle">
+                    <div class="section-header">
+                        <h3 id="pastFairsTitle">Voorgaande beurzen</h3>
+                        <p>Bekijk per beurs je resultaten op basis van gekoppelde transacties.</p>
+                    </div>
+                    <div id="pastFairsList" class="agenda-list">
+                        <div class="empty-row">Nog geen beurzen beschikbaar.</div>
                     </div>
                 </section>
             </section>
