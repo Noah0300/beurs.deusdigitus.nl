@@ -1,10 +1,11 @@
 ﻿// Hardcoded admin gebruiker
-const USERS = [
-    { username: 'admin', password: 'admin123', role: 'admin' },
-    { username: 'cashier', password: 'cashier123', role: 'cashier' }
+const DEFAULT_USERS = [
+    { username: 'admin', password: 'admin123', role: 'admin', isMainAdmin: true },
+    { username: 'cashier', password: 'cashier123', role: 'cashier', isMainAdmin: false }
 ];
 
 const SESSION_STORAGE_KEY = 'userSession';
+const USERS_STORAGE_KEY = 'appUsers';
 const PRODUCTS_STORAGE_KEY = 'vinylProducts';
 const BARCODE_METADATA_CACHE_KEY = 'barcodeMetadataCache';
 const FAIRS_STORAGE_KEY = 'plannedFairs';
@@ -48,7 +49,8 @@ if (document.getElementById('loginForm')) {
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
 
-        const matchedUser = USERS.find((user) => user.username === username && user.password === password);
+        const users = getStoredUsers();
+        const matchedUser = users.find((user) => user.username === username && user.password === password);
         if (matchedUser) {
             const sessionData = {
                 username: username,
@@ -79,6 +81,7 @@ if (isDashboardPage) {
     checkAuthentication('admin');
     initializeTopNavigation();
     initializeDashboard();
+    initializeUserManagement();
     initializeProductForm();
     initializeFairPlanner();
     initializeProductSearch();
@@ -102,6 +105,17 @@ function checkAuthentication(requiredRole = null) {
     }
 
     const session = JSON.parse(sessionData);
+    const users = getStoredUsers();
+    const user = users.find((item) => item.username === session.username);
+    if (!user) {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+        window.location.href = 'index.html';
+        return;
+    }
+    if (session.role !== user.role) {
+        session.role = user.role;
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    }
     if (requiredRole && session.role !== requiredRole) {
         window.location.href = session.role === 'admin' ? 'dashboard.html' : 'cashier.html';
         return;
@@ -159,6 +173,132 @@ function initializeDashboard() {
     renderDashboardOverview();
 }
 
+function initializeUserManagement() {
+    const section = document.getElementById('userManagementSection');
+    const form = document.getElementById('userManagementForm');
+    const usersTableBody = document.getElementById('usersTableBody');
+    const createUserBtn = document.getElementById('createUserBtn');
+    if (!section || !form || !usersTableBody || !createUserBtn) return;
+
+    const session = getCurrentSession();
+    const isMainAdmin = isCurrentMainAdmin(session);
+    if (!isMainAdmin) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+    renderUsersTable();
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const usernameInput = document.getElementById('newUserNameInput');
+        const passwordInput = document.getElementById('newUserPasswordInput');
+        const roleInput = document.getElementById('newUserRoleInput');
+        if (!(usernameInput instanceof HTMLInputElement) || !(passwordInput instanceof HTMLInputElement) || !(roleInput instanceof HTMLSelectElement)) {
+            return;
+        }
+
+        const username = String(usernameInput.value || '').trim().toLowerCase();
+        const password = String(passwordInput.value || '').trim();
+        const role = roleInput.value === 'admin' ? 'admin' : 'cashier';
+
+        if (!username || username.length < 3) {
+            showUserManagementMessage('Gebruikersnaam moet minimaal 3 tekens zijn.', 'error');
+            return;
+        }
+        if (!/^[a-z0-9._-]+$/.test(username)) {
+            showUserManagementMessage('Gebruik alleen letters, cijfers, punt, streepje of underscore.', 'error');
+            return;
+        }
+        if (!password || password.length < 6) {
+            showUserManagementMessage('Wachtwoord moet minimaal 6 tekens zijn.', 'error');
+            return;
+        }
+
+        const users = getStoredUsers();
+        if (users.some((user) => user.username === username)) {
+            showUserManagementMessage('Deze gebruikersnaam bestaat al.', 'error');
+            return;
+        }
+
+        users.push({
+            username,
+            password,
+            role,
+            isMainAdmin: false
+        });
+        saveStoredUsers(users);
+        renderUsersTable();
+        showUserManagementMessage('Gebruiker aangemaakt.', 'success');
+
+        usernameInput.value = '';
+        passwordInput.value = '';
+        roleInput.value = 'cashier';
+    });
+
+    usersTableBody.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (!target.classList.contains('delete-user-btn')) return;
+
+        const username = target.getAttribute('data-username') || '';
+        if (!username) return;
+
+        const users = getStoredUsers();
+        const user = users.find((item) => item.username === username);
+        if (!user) return;
+        if (user.isMainAdmin) {
+            showUserManagementMessage('Hoofd-admin kan niet verwijderd worden.', 'error');
+            return;
+        }
+
+        const confirmed = window.confirm(`Gebruiker "${username}" verwijderen?`);
+        if (!confirmed) return;
+
+        const updatedUsers = users.filter((item) => item.username !== username);
+        saveStoredUsers(updatedUsers);
+        renderUsersTable();
+        showUserManagementMessage('Gebruiker verwijderd.', 'success');
+    });
+}
+
+function renderUsersTable() {
+    const usersTableBody = document.getElementById('usersTableBody');
+    if (!usersTableBody) return;
+
+    const users = getStoredUsers().slice().sort((a, b) => a.username.localeCompare(b.username, 'nl'));
+    if (users.length === 0) {
+        usersTableBody.innerHTML = '<tr><td colspan="4" class="empty-row">Nog geen accounts gevonden.</td></tr>';
+        return;
+    }
+
+    usersTableBody.innerHTML = users.map((user) => `
+        <tr>
+            <td>${escapeHtml(user.username)}</td>
+            <td>${escapeHtml(user.role)}</td>
+            <td>${user.isMainAdmin ? 'Hoofd-admin' : 'Standaard'}</td>
+            <td>
+                ${user.isMainAdmin
+                    ? '<span class="empty-row">Niet verwijderbaar</span>'
+                    : `<button type="button" class="danger-btn delete-user-btn" data-username="${escapeHtml(user.username)}">Verwijder</button>`}
+            </td>
+        </tr>
+    `).join('');
+}
+
+function showUserManagementMessage(message, type) {
+    const messageElement = document.getElementById('userManagementMessage');
+    if (!messageElement) return;
+
+    messageElement.textContent = message;
+    messageElement.className = 'form-message show';
+    if (type === 'error') messageElement.classList.add('error');
+    if (type === 'success') messageElement.classList.add('success');
+    if (type === 'info') messageElement.classList.add('info');
+}
+
 function initializeTopNavigation() {
     const navButtons = document.querySelectorAll('.section-nav-btn');
     if (navButtons.length === 0) return;
@@ -210,6 +350,7 @@ function showDashboardPage(pageId) {
     if (pageId === 'pageDashboard') {
         renderDashboardAgenda();
         renderDashboardOverview();
+        renderUsersTable();
     }
 }
 
@@ -1766,6 +1907,69 @@ function getStoredProducts() {
     }
 }
 
+function getStoredUsers() {
+    const raw = localStorage.getItem(USERS_STORAGE_KEY);
+    if (!raw) {
+        saveStoredUsers(DEFAULT_USERS);
+        return DEFAULT_USERS.map((user) => ({ ...user }));
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+            saveStoredUsers(DEFAULT_USERS);
+            return DEFAULT_USERS.map((user) => ({ ...user }));
+        }
+
+        const normalized = parsed
+            .filter((item) => item && typeof item === 'object')
+            .map((item) => ({
+                username: String(item.username || '').trim().toLowerCase(),
+                password: String(item.password || ''),
+                role: item.role === 'admin' ? 'admin' : 'cashier',
+                isMainAdmin: Boolean(item.isMainAdmin)
+            }))
+            .filter((item) => item.username && item.password);
+
+        const adminIndex = normalized.findIndex((item) => item.username === 'admin');
+        if (adminIndex >= 0) {
+            normalized[adminIndex].role = 'admin';
+            normalized[adminIndex].isMainAdmin = true;
+            if (!normalized[adminIndex].password) {
+                normalized[adminIndex].password = 'admin123';
+            }
+        } else {
+            normalized.push({ username: 'admin', password: 'admin123', role: 'admin', isMainAdmin: true });
+        }
+
+        return normalized;
+    } catch {
+        saveStoredUsers(DEFAULT_USERS);
+        return DEFAULT_USERS.map((user) => ({ ...user }));
+    }
+}
+
+function saveStoredUsers(users) {
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+}
+
+function getCurrentSession() {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+function isCurrentMainAdmin(session) {
+    if (!session || !session.username) return false;
+    const users = getStoredUsers();
+    const user = users.find((item) => item.username === String(session.username).toLowerCase());
+    return Boolean(user && user.isMainAdmin);
+}
+
 function getStoredProductByBarcode(barcode) {
     const candidates = getBarcodeCandidates(barcode);
     const products = getStoredProducts();
@@ -2073,6 +2277,7 @@ window.addEventListener('pageshow', function (event) {
         if (isCashierPage) checkAuthentication('cashier');
     }
 });
+
 
 
 

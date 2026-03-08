@@ -31,15 +31,15 @@
             </nav>
 
             <section id="pageDashboard" class="dashboard-page active">
+                <div class="dashboard-header">
+                    <h2>Welkom op het Dashboard</h2>
+                    <p>Goedendag, <span id="dashboardUserName">Admin</span>!</p>
+                </div>
+
                 <div class="dashboard-info">
                     <h3>Agenda</h3>
                     <div id="dashboardAgendaSummary" class="agenda-summary">Nog geen beurzen ingepland.</div>
                     <div id="dashboardAgendaList" class="agenda-list"></div>
-                </div>
-
-                <div class="dashboard-header">
-                    <h2>Welkom op het Dashboard</h2>
-                    <p>Goedendag, <span id="dashboardUserName">Admin</span>!</p>
                 </div>
 
                 <div class="dashboard-info">
@@ -78,6 +78,55 @@
                         <div class="info-item">
                             <label>Status:</label>
                             <span class="status-active">Actief</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="userManagementSection" class="dashboard-info">
+                    <h3>Gebruikers Beheer</h3>
+                    <p id="userManagementHint" class="agenda-summary">Alleen hoofd-admin kan accounts aanmaken en verwijderen.</p>
+                    <form id="userManagementForm" class="product-form" novalidate>
+                        <div class="form-row three-cols">
+                            <div class="form-group">
+                                <label for="newUserNameInput">Gebruikersnaam</label>
+                                <input type="text" id="newUserNameInput" placeholder="Bijv. kassamedewerker1">
+                            </div>
+                            <div class="form-group">
+                                <label for="newUserPasswordInput">Wachtwoord</label>
+                                <input type="text" id="newUserPasswordInput" placeholder="Bijv. Welkom123!">
+                            </div>
+                            <div class="form-group">
+                                <label for="newUserRoleInput">Rol</label>
+                                <select id="newUserRoleInput">
+                                    <option value="cashier">cashier</option>
+                                    <option value="admin">admin</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="userManagementMessage" class="form-message" aria-live="polite"></div>
+                        <div class="form-actions end">
+                            <button type="submit" id="createUserBtn" class="success-btn">Gebruiker aanmaken</button>
+                        </div>
+                    </form>
+
+                    <div class="products-list">
+                        <h4>Bestaande accounts</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Gebruikersnaam</th>
+                                        <th>Rol</th>
+                                        <th>Type</th>
+                                        <th>Actie</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usersTableBody">
+                                    <tr>
+                                        <td colspan="4" class="empty-row">Nog geen accounts gevonden.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
