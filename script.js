@@ -17,6 +17,12 @@ let cashierVideoStream = null;
 let cashierScannerActive = false;
 let cashierScannerMode = '';
 let cashierHtml5Qr = null;
+const SMALL_BARCODE_VIDEO_CONSTRAINTS = {
+    facingMode: { ideal: 'environment' },
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    focusMode: { ideal: 'continuous' }
+};
 
 const SEARCH_SORT_STATE = {
     key: 'artist',
@@ -449,7 +455,7 @@ async function startBarcodeDetectorScan(video, qrReader) {
         qrReader.classList.add('hidden');
 
         cashierVideoStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' } },
+            video: SMALL_BARCODE_VIDEO_CONSTRAINTS,
             audio: false
         });
 
@@ -460,7 +466,13 @@ async function startBarcodeDetectorScan(video, qrReader) {
         const scanLoop = async () => {
             if (!cashierScannerActive || cashierScannerMode !== 'barcode-detector') return;
             try {
-                const barcodes = await detector.detect(video);
+                let barcodes = await detector.detect(video);
+                if ((!barcodes || barcodes.length === 0) && video.videoWidth > 0 && video.videoHeight > 0) {
+                    const upscaledCanvas = getUpscaledScanCanvas(video);
+                    if (upscaledCanvas) {
+                        barcodes = await detector.detect(upscaledCanvas);
+                    }
+                }
                 if (Array.isArray(barcodes) && barcodes.length > 0) {
                     const rawValue = barcodes[0].rawValue || '';
                     if (rawValue) {
@@ -492,8 +504,13 @@ async function startHtml5QrScan(video, qrReader) {
         cashierHtml5Qr = new window.Html5Qrcode('cashierQrReader');
 
         const config = {
-            fps: 10,
-            qrbox: { width: 280, height: 120 },
+            fps: 15,
+            disableFlip: true,
+            qrbox: (viewfinderWidth, viewfinderHeight) => ({
+                width: Math.max(280, Math.floor(viewfinderWidth * 0.95)),
+                height: Math.max(120, Math.floor(viewfinderHeight * 0.32))
+            }),
+            videoConstraints: SMALL_BARCODE_VIDEO_CONSTRAINTS,
             formatsToSupport: [
                 window.Html5QrcodeSupportedFormats.EAN_13,
                 window.Html5QrcodeSupportedFormats.EAN_8,
@@ -525,11 +542,32 @@ async function startHtml5QrScan(video, qrReader) {
             await cashierHtml5Qr.start({ facingMode: 'environment' }, config, onSuccess, onError);
         }
 
-        showCashierMessage('Camera scanner gestart. Richt op barcode.', 'info');
+        showCashierMessage('Camera scanner gestart. Tip: houd kleine barcodes dichterbij en stabiel in beeld.', 'info');
     } catch (error) {
         console.error('html5-qrcode scan error:', error);
         showCashierMessage('Camera kon niet gestart worden.', 'error');
         stopCameraBarcodeScan();
+    }
+}
+
+function getUpscaledScanCanvas(video) {
+    try {
+        const baseWidth = video.videoWidth;
+        const baseHeight = video.videoHeight;
+        if (!baseWidth || !baseHeight) return null;
+
+        const scale = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = baseWidth * scale;
+        canvas.height = baseHeight * scale;
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) return null;
+
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas;
+    } catch {
+        return null;
     }
 }
 
