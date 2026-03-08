@@ -20,6 +20,7 @@ let cashierScannerActive = false;
 let cashierScannerMode = '';
 let cashierHtml5Qr = null;
 let cashierPrecisionMode = false;
+let cashierConnectivityTimer = null;
 
 const CAMERA_CONSTRAINTS_NORMAL = {
     facingMode: { ideal: 'environment' },
@@ -78,6 +79,8 @@ if (document.getElementById('loginForm')) {
 const isDashboardPage = !!document.querySelector('.section-nav');
 const isCashierPage = !!document.getElementById('cashierApp');
 
+registerOfflineSupport();
+
 if (isDashboardPage) {
     checkAuthentication('admin');
     initializeTopNavigation();
@@ -97,7 +100,17 @@ if (isDashboardPage) {
 if (isCashierPage) {
     checkAuthentication('cashier');
     initializeCashierPage();
+    initializeCashierConnectivity();
     document.getElementById('logoutBtn').addEventListener('click', logout);
+}
+
+function registerOfflineSupport() {
+    if (!('serviceWorker' in navigator)) return;
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch((error) => {
+            console.warn('Service worker registration failed:', error);
+        });
+    });
 }
 
 function checkAuthentication(requiredRole = null) {
@@ -464,6 +477,92 @@ function initializeCashierPage() {
             stopCameraBarcodeScan();
         });
     }
+}
+
+function initializeCashierConnectivity() {
+    updateCashierConnectionStatus('online', 'Cache en verbinding worden gecontroleerd...');
+
+    const onOnline = () => {
+        probeCashierConnectivity();
+    };
+    const onOffline = () => {
+        updateCashierConnectionStatus('offline', 'Offline lokale modus actief. Kassa blijft lokaal werken.');
+    };
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    if (cashierConnectivityTimer) {
+        clearInterval(cashierConnectivityTimer);
+    }
+    cashierConnectivityTimer = setInterval(() => {
+        probeCashierConnectivity();
+    }, 20000);
+
+    probeCashierConnectivity();
+}
+
+async function probeCashierConnectivity() {
+    if (!navigator.onLine) {
+        updateCashierConnectionStatus('offline', 'Offline lokale modus actief. Kassa blijft lokaal werken.');
+        return;
+    }
+
+    const start = performance.now();
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3500);
+        await fetch(`./index.html?connectivity=${Date.now()}`, {
+            method: 'GET',
+            cache: 'no-store',
+            signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        const durationMs = Math.round(performance.now() - start);
+        const hasSwCache = Boolean(navigator.serviceWorker && navigator.serviceWorker.controller);
+
+        if (durationMs > 1600) {
+            updateCashierConnectionStatus(
+                'unstable',
+                `Instabiele verbinding (${durationMs} ms). Lokale modus actief${hasSwCache ? ' + cache actief' : ''}.`
+            );
+            return;
+        }
+
+        updateCashierConnectionStatus(
+            'online',
+            `Online (${durationMs} ms)${hasSwCache ? ' • cache actief' : ' • cache start bij volgende herlaad'}.`
+        );
+    } catch {
+        const hasSwCache = Boolean(navigator.serviceWorker && navigator.serviceWorker.controller);
+        updateCashierConnectionStatus(
+            'unstable',
+            `Verbinding hapert. Lokale modus actief${hasSwCache ? ' + cache actief' : ''}.`
+        );
+    }
+}
+
+function updateCashierConnectionStatus(state, detail) {
+    const wrap = document.getElementById('cashierConnectionStatus');
+    const badge = document.getElementById('cashierConnectionBadge');
+    const detailEl = document.getElementById('cashierConnectionDetail');
+    if (!wrap || !badge || !detailEl) return;
+
+    wrap.classList.remove('connection-online', 'connection-offline', 'connection-unstable');
+
+    if (state === 'offline') {
+        wrap.classList.add('connection-offline');
+        badge.textContent = 'Offline';
+    } else if (state === 'unstable') {
+        wrap.classList.add('connection-unstable');
+        badge.textContent = 'Instabiel';
+    } else {
+        wrap.classList.add('connection-online');
+        badge.textContent = 'Online';
+    }
+
+    detailEl.textContent = detail;
 }
 
 function addBarcodeToCart(rawBarcode) {
@@ -2506,6 +2605,10 @@ function cssEscape(value) {
 function logout() {
     if (confirm('Weet je zeker dat je wil uitloggen?')) {
         stopCameraBarcodeScan();
+        if (cashierConnectivityTimer) {
+            clearInterval(cashierConnectivityTimer);
+            cashierConnectivityTimer = null;
+        }
         localStorage.removeItem(SESSION_STORAGE_KEY);
         window.location.href = 'index.html';
     }

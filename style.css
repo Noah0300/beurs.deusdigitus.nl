@@ -760,6 +760,36 @@ body {
     color: var(--text-primary);
 }
 
+.connection-status {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    border: 1px solid var(--border-color);
+}
+
+.connection-status strong {
+    min-width: 74px;
+}
+
+.connection-online {
+    background: rgba(16, 185, 129, 0.1);
+    color: #065f46;
+}
+
+.connection-unstable {
+    background: rgba(245, 158, 11, 0.13);
+    color: #92400e;
+}
+
+.connection-offline {
+    background: rgba(239, 68, 68, 0.12);
+    color: #991b1b;
+}
+
 .info-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
